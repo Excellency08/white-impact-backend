@@ -3,15 +3,34 @@ const nodemailer = require("nodemailer");
 let transporter;
 
 function getTransporter() {
-  // Priority: EMAIL_HOST (generic SMTP) → GMAIL → Mock fallback
-  if (process.env.EMAIL_HOST) {
-    return nodemailer.createTransporter({
-      host: process.env.EMAIL_HOST,
-      port: parseInt(process.env.EMAIL_PORT) || 587,
-      secure: process.env.EMAIL_SECURE === "true",
+  // Force mock mode when requested or email sending is disabled
+  if (process.env.MOCK_EMAIL === "true" || process.env.SEND_EMAILS === "false") {
+    return nodemailer.createTransport({
+      streamTransport: true,
+      newline: "unix",
+    });
+  }
+
+  // Priority: SMTP_HOST if provided
+  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT, 10) || 587,
+      secure: process.env.SMTP_SECURE === "true",
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  }
+
+  // Fallback: Gmail service environment variables
+  if (process.env.EMAIL_SERVICE === "gmail" && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    return nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
       },
     });
   }
@@ -37,8 +56,13 @@ async function testTransporter() {
   try {
     transporter = getTransporter();
 
-    if (!process.env.EMAIL_HOST && !process.env.GMAIL_USER) {
-      console.log("⚠️  [Email] Mock mode: Emails logged to console (configure GMAIL or EMAIL_HOST for production)");
+    if (process.env.MOCK_EMAIL === "true" || process.env.SEND_EMAILS === "false") {
+      console.log("⚠️  [Email] Mock mode: Emails logged to console (MOCK_EMAIL=true or SEND_EMAILS=false)");
+      return { ok: true, mode: "mock" };
+    }
+
+    if (!process.env.SMTP_HOST && !process.env.GMAIL_USER && !process.env.SMTP_USER) {
+      console.log("⚠️  [Email] Mock mode: Emails logged to console (configure SMTP_HOST or Gmail credentials for production)");
       return { ok: true, mode: "mock" };
     }
 
@@ -59,7 +83,7 @@ async function sendEmail({ to, subject, html, text }) {
     }
 
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || `"White Impact Initiative" <${process.env.EMAIL_USER || "noreply@whiteimpactinitiative.org"}>`,
+      from: process.env.EMAIL_FROM || process.env.FROM_EMAIL || `"White Impact Initiative" <${process.env.EMAIL_USER || "noreply@whiteimpactinitiative.org"}>`,
       to,
       subject,
       html,

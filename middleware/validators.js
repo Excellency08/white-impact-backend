@@ -65,7 +65,7 @@ function validateDonationForm(data) {
     errors.push("Donation amount must be at least ₦100");
   }
 
-  if (!data.category || !["education", "healthcare", "water", "food-security", "other"].includes(data.category)) {
+  if (!data.category || !["education", "digital-learning", "health-care", "civic-leadership", "others"].includes(data.category)) {
     errors.push("Valid program area is required");
   }
 

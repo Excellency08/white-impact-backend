@@ -5,8 +5,8 @@
  * Endpoints:
  *   POST /api/contact          — Work With Us contact form
  *   POST /api/newsletter       — Newsletter subscription
- *   POST /api/donate/initiate  — Initiate Paystack payment
- *   GET  /api/donate/verify    — Verify Paystack callback
+ *   POST /api/donate/initiate  — Record donation & return bank details
+ *   POST /api/donate/receipt   — Upload payment receipt
  *   POST /api/team/photo       — Upload team member photo
  *   GET  /api/team             — Get all team members
  *   GET  /api/health           — Health check
@@ -36,12 +36,42 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }, // allow img loading
 }));
 
-app.use(cors({ 
-  origin: process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(",")
-    : ["http://localhost:5500", "http://127.0.0.1:5500", "http://localhost:3000"],
-  methods: ["GET", "POST", "PUT", "DELETE"],
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+  : process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(",")
+    : [
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        "http://172.16.0.20:5500",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+      ];
+
+function isLocalDevOrigin(origin) {
+  if (!origin) return false;
+  try {
+    const hostname = new URL(origin).hostname;
+    return ["localhost", "127.0.0.1"].includes(hostname)
+      || hostname.startsWith("10.")
+      || hostname.startsWith("172.")
+      || hostname.startsWith("192.168.");
+  } catch {
+    return false;
+  }
+}
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
 }));
 
 app.use(morgan("combined"));

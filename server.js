@@ -29,7 +29,7 @@ const donateRouter = require("./routes/donate");
 const teamRouter = require("./routes/team");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3030;
 
 /* ─── Security & Middleware ─────────────────────────────────────── */
 app.use(helmet({
@@ -78,6 +78,16 @@ app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+/* ─── API Request Logger ─────────────────────────────────────────── */
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/")) {
+    const payload = req.method === "GET" ? req.query : req.body;
+    const data = payload && Object.keys(payload).length ? ` payload=${JSON.stringify(payload)}` : "";
+    console.log(`➡️ [API] ${req.method} ${req.originalUrl}${data}`);
+  }
+  next();
+});
+
 /* ─── Rate Limiting ─────────────────────────────────────────────── */
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -125,9 +135,19 @@ app.use((err, _req, res, _next) => {
 async function start() {
   await initDB();
   await testTransporter();
-  app.listen(PORT, () => {
+
+  const server = app.listen(PORT, () => {
     console.log(`\n✅ WhiteImpact API running at http://localhost:${PORT}`);
     console.log(`   Health check: http://localhost:${PORT}/api/health\n`);
+  });
+
+  server.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Port ${PORT} is already in use. Stop the running process or change BACKEND_PORT.`);
+    } else {
+      console.error("Server error:", err);
+    }
+    process.exit(1);
   });
 }
 

@@ -34,7 +34,7 @@ function seedFallbackTeamMembers() {
       bio: "Leading White Impact Initiative with vision for sustainable development.",
       display_order: 1,
       is_active: true,
-      photo_url: null,
+      photo_url: "../uploads/team/default1.jpg",
       created_at: new Date(),
     },
     {
@@ -44,7 +44,7 @@ function seedFallbackTeamMembers() {
       bio: "Oversees all development programs and partnerships.",
       display_order: 2,
       is_active: true,
-      photo_url: null,
+      photo_url: "../uploads/team/default2.jpg",
       created_at: new Date(),
     },
     {
@@ -54,7 +54,7 @@ function seedFallbackTeamMembers() {
       bio: "Manages financial operations and compliance.",
       display_order: 3,
       is_active: true,
-      photo_url: null,
+      photo_url: "../uploads/team/default3.jpg",
       created_at: new Date(),
     },
     {
@@ -64,7 +64,7 @@ function seedFallbackTeamMembers() {
       bio: "Drives strategic communications and public engagement.",
       display_order: 4,
       is_active: true,
-      photo_url: null,
+      photo_url: "../uploads/team/default4.jpg",
       created_at: new Date(),
     },
   ];
@@ -196,8 +196,14 @@ function fallbackQuery(text, params = []) {
     const reference = params[0];
     const donation = fallbackStore.donations.find((entry) => entry.reference === reference);
     if (!donation) return { rowCount: 0, rows: [] };
-    if (params[1] !== undefined) donation.status = params[1];
-    if (params[2] !== undefined) donation.receipt_url = params[2];
+    
+    if (normalized.includes("status='receipt_submitted'") || normalized.includes("status = 'receipt_submitted'")) {
+      donation.status = "receipt_submitted";
+      if (params[1] !== undefined) donation.receipt_url = params[1];
+    } else {
+      if (params[1] !== undefined) donation.status = params[1];
+      if (params[2] !== undefined) donation.receipt_url = params[2];
+    }
     return { rowCount: 1, rows: [donation] };
   }
 

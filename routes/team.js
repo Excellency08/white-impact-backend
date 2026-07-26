@@ -2,7 +2,7 @@
  * GET  /api/team         — Get all active team members
  * POST /api/team/photo   — Upload a team member photo (multipart/form-data)
  * PUT  /api/team/:id     — Update team member details
- */
+ */ 
 
 const express = require("express");
 const router = express.Router();

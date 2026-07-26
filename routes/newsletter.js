@@ -11,9 +11,10 @@ const { validateNewsletterForm } = require("../middleware/validators");
 
 router.post("/", async (req, res) => {
   const { email } = req.body;
+  const validation = validateNewsletterForm({ email });
 
-  if (!email || !isValidEmail(email)) {
-    return res.status(400).json({ success: false, message: "Please provide a valid email address." });
+  if (!validation.valid) {
+    return res.status(400).json({ success: false, message: validation.errors[0] || "Please provide a valid email address." });
   }
 
   try {

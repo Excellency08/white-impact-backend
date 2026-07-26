@@ -70,8 +70,9 @@ async function testTransporter() {
     console.log("✅ Email transporter verified and ready.");
     return { ok: true, mode: "real" };
   } catch (error) {
-    console.log(`⚠️  [Email] Transporter check skipped: ${error.message} (Expected - mock mode configured)`);
-    transporter = nodemailer.createTransport({ streamTransport: true });
+    const fallbackMessage = `⚠️  [Email] Transporter could not verify: ${error.message}. Falling back to mock mode.`;
+    console.warn(fallbackMessage);
+    transporter = nodemailer.createTransport({ streamTransport: true, newline: "unix" });
     return { ok: true, mode: "mock", error: error.message };
   }
 }

@@ -108,6 +108,7 @@ router.post("/receipt", receiptUpload.single("receipt"), async (req, res) => {
     );
 
     const staffEmail = process.env.STAFF_EMAIL || "info@whiteimpactinitiative.org";
+    const receiptFullUrl = `${process.env.BACKEND_URL || "http://localhost:3030"}${receiptUrl}`;
     sendEmail({
       to: staffEmail,
       subject: `Donation receipt submitted — ${reference}`,
@@ -118,6 +119,7 @@ router.post("/receipt", receiptUpload.single("receipt"), async (req, res) => {
           <p><strong>Donor:</strong> ${donation.full_name} (${donation.email})</p>
           <p><strong>Amount:</strong> ₦${Number(donation.amount_naira).toLocaleString()}</p>
           <p><strong>Program:</strong> ${donation.program_area || "General"}</p>
+          <p><strong>Receipt File:</strong> <a href="${receiptFullUrl}" target="_blank">View Uploaded Receipt</a></p>
           <p>Receipt uploaded and awaiting confirmation.</p>
         </div>
       `,
@@ -135,7 +137,13 @@ router.post("/receipt", receiptUpload.single("receipt"), async (req, res) => {
       `,
     }).catch(console.error);
 
-    res.json({ success: true, message: "Receipt submitted successfully. We will confirm your donation shortly." });
+    res.json({
+      success: true,
+      message: "Receipt submitted successfully. We will confirm your donation shortly.",
+      reference,
+      receipt_url: receiptUrl,
+      receipt_full_url: receiptFullUrl,
+    });
   } catch (err) {
     console.error("Receipt upload error:", err);
     if (req.file) fs.unlinkSync(req.file.path);

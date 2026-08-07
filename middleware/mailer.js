@@ -11,30 +11,40 @@ function getTransporter() {
     });
   }
 
-  // Priority: SMTP_HOST if provided
-  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  // Priority 1: Direct SMTP Configuration
+  const smtpHost = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+  const smtpUser = process.env.SMTP_USER || process.env.EMAIL_USER;
+  const smtpPass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+  const smtpPort = process.env.SMTP_PORT || process.env.EMAIL_PORT || process.env.SMTP_POR;
+
+  if (smtpHost && smtpUser && smtpPass) {
     return nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT, 10) || 587,
-      secure: process.env.SMTP_SECURE === "true",
+      host: smtpHost,
+      port: parseInt(smtpPort, 10) || 587,
+      secure: process.env.SMTP_SECURE === "true" || parseInt(smtpPort, 10) === 465,
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: smtpUser,
+        pass: smtpPass,
       },
     });
   }
 
-  // Fallback: Gmail service environment variables
-  if (process.env.EMAIL_SERVICE === "gmail" && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  // Priority 2: Gmail Service Configuration (case-insensitive check)
+  const service = (process.env.EMAIL_SERVICE || "").toLowerCase();
+  const gmailUser = process.env.GMAIL_USER || smtpUser;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD || smtpPass;
+
+  if ((service === "gmail" || service === "google") && gmailUser && gmailPass) {
     return nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: gmailUser,
+        pass: gmailPass,
       },
     });
   }
 
+  // Fallback: Direct Gmail credentials check without explicit service key
   if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     return nodemailer.createTransport({
       service: "gmail",
@@ -45,7 +55,7 @@ function getTransporter() {
     });
   }
 
-  // Fallback: Mock transporter (console logging)
+  // Default: Mock transporter (logs output)
   return nodemailer.createTransport({
     streamTransport: true,
     newline: "unix",
@@ -61,7 +71,8 @@ async function testTransporter() {
       return { ok: true, mode: "mock" };
     }
 
-    if (!process.env.SMTP_HOST && !process.env.GMAIL_USER && !process.env.SMTP_USER) {
+    const hasConfig = process.env.SMTP_HOST || process.env.EMAIL_HOST || process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER;
+    if (!hasConfig) {
       console.log("⚠️  [Email] Mock mode: Emails logged to console (configure SMTP_HOST or Gmail credentials for production)");
       return { ok: true, mode: "mock" };
     }
@@ -83,8 +94,11 @@ async function sendEmail({ to, subject, html, text }) {
       transporter = getTransporter();
     }
 
+    const senderEmail = process.env.EMAIL_USER || process.env.SMTP_USER || process.env.GMAIL_USER || "noreply@whiteimpactinitiative.org";
+    const fromAddress = process.env.EMAIL_FROM || process.env.FROM_EMAIL || `"White Impact Initiative" <${senderEmail}>`;
+
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || process.env.FROM_EMAIL || `"White Impact Initiative" <${process.env.EMAIL_USER || "noreply@whiteimpactinitiative.org"}>`,
+      from: fromAddress,
       to,
       subject,
       html,

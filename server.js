@@ -123,8 +123,54 @@ app.use("/api/newsletter", newsletterRouter);
 app.use("/api/donate", donateRouter);
 app.use("/api/team", teamRouter);
 
+      // health check 
 app.get("/api/health", (_req, res) => {
   res.json({ success: true, status: "ok", timestamp: new Date().toISOString() });
+});
+
+app.get("/api/health/detailed", async (_req, res) => {
+  const healthStatus = {
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    checks: {
+      database: "unknown",
+      mailer: "unknown",
+      routes: {
+        contact: "configured",
+        newsletter: "configured",
+        donate: "configured",
+        team: "configured",
+      },
+    },
+  };
+
+  try {
+    // Check Database Connection
+    const { pool } = require("./db/database"); // Adjust to your DB export
+    await pool.query("SELECT 1");
+    healthStatus.checks.database = "connected";
+  } catch (err) {
+    healthStatus.status = "degraded";
+    healthStatus.checks.database = `error: ${err.message}`;
+  }
+
+  try {
+    // Check Mail Transporter Connection
+    const { transporter } = require("./middleware/mailer"); // Adjust to your mailer export
+    if (transporter) {
+      await transporter.verify();
+      healthStatus.checks.mailer = "connected";
+    } else {
+      healthStatus.checks.mailer = "not_configured";
+    }
+  } catch (err) {
+    healthStatus.status = "degraded";
+    healthStatus.checks.mailer = `error: ${err.message}`;
+  }
+
+  const statusCode = healthStatus.status === "ok" ? 200 : 503;
+  res.status(statusCode).json(healthStatus);
 });
 
 /* ─── 404 & Error Handler ───────────────────────────────────────── */

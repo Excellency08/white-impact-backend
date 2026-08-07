@@ -13,6 +13,11 @@ const { query } = require("../db/database");
 const { sendEmail } = require("../middleware/mailer");
 const { validateDonationForm } = require("../middleware/validators");
 
+
+// health check 
+router.get("/health", (_req, res) => {
+  res.json({ success: true, service: "donate", status: "ok" });
+});
 const BANK_DETAILS = {
   bankName: process.env.DONATION_BANK_NAME || "Access Bank",
   accountNumber: process.env.DONATION_ACCOUNT_NUMBER || "0123456789",

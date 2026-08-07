@@ -9,6 +9,12 @@ const { query } = require("../db/database");
 const { sendEmail } = require("../middleware/mailer");
 const { validateContactForm } = require("../middleware/validators");
 
+
+// health check 
+router.get("/health", (_req, res) => {
+  res.json({ success: true, service: "contact", status: "ok" });
+});
+
 router.post("/", async (req, res) => {
   const { fullName, email, subject, message } = req.body;
 

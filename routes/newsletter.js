@@ -9,6 +9,11 @@ const { query } = require("../db/database");
 const { sendEmail } = require("../middleware/mailer");
 const { validateNewsletterForm } = require("../middleware/validators");
 
+  // health check  
+router.get("/health", (_req, res) => {
+  res.json({ success: true, service: "newsletter", status: "ok" });
+});
+
 router.post("/", async (req, res) => {
   const { email } = req.body;
   const validation = validateNewsletterForm({ email });

@@ -36,17 +36,22 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }, // allow img loading
 }));
 
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",")
-  : process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(",")
-    : [
-        "http://localhost:5500",
-        "http://127.0.0.1:5500",
-        "http://172.16.0.20:5500",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-      ];
+// Parse environment variables (trimming whitespace) or set default fallbacks
+const envOrigins = (process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const defaultOrigins = [
+  process.env.FRONTEND_URL,
+  "http://localhost:5500",
+  "http://127.0.0.1:5500",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5173",
+].filter(Boolean);
+
+const allowedOrigins = Array.from(new Set([...envOrigins, ...defaultOrigins]));
 
 function isLocalDevOrigin(origin) {
   if (!origin) return false;
@@ -63,11 +68,15 @@ function isLocalDevOrigin(origin) {
 
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow non-browser calls (Postman, cURL, server-to-server)
     if (!origin) return callback(null, true);
+    
     if (allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) {
       return callback(null, true);
     }
-    callback(new Error("Not allowed by CORS"));
+    
+    // Returning false lets express-cors handle the denial without throwing a 500 error
+    return callback(null, false);
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],

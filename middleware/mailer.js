@@ -1,101 +1,73 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
-let transporter;
-
-function getTransporter() {
-  // Force mock mode when requested or email sending is disabled
-  if (process.env.MOCK_EMAIL === "true" || process.env.SEND_EMAILS === "false") {
-    return nodemailer.createTransport({
-      streamTransport: true,
-      newline: "unix",
-    });
-  }
-
-  const gmailUser = process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || process.env.EMAIL_PASS;
-
-  if (gmailUser && gmailPass) {
-    return nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true, // SSL port 465
-      auth: {
-        user: gmailUser,
-        pass: gmailPass,
-      },
-      family: 4, // Force IPv4 to prevent Render IPv6 ENETUNREACH routing errors
-      connectionTimeout: 10000, // 10s connection timeout
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
-    });
-  }
-
-  // Fallback: Mock transporter (logs output to console)
-  return nodemailer.createTransport({
-    streamTransport: true,
-    newline: "unix",
-  });
+// Initialize Resend client lazily when needed
+function getResendClient() {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return null;
+  return new Resend(apiKey);
 }
 
+/**
+ * Verifies email API status for system diagnostics.
+ */
 async function testTransporter() {
-  try {
-    console.log("🔍 [Email Debug] Environment Check:", {
-      MOCK_EMAIL: process.env.MOCK_EMAIL || "not set",
-      SEND_EMAILS: process.env.SEND_EMAILS || "not set",
-      GMAIL_USER: process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER ? "EXISTS" : "MISSING",
-      GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || process.env.EMAIL_PASS ? "EXISTS" : "MISSING",
-    });
+  const apiKey = process.env.RESEND_API_KEY;
+  const isMock = process.env.MOCK_EMAIL === "true" || process.env.SEND_EMAILS === "false";
 
-    transporter = getTransporter();
-
-    if (process.env.MOCK_EMAIL === "true" || process.env.SEND_EMAILS === "false") {
-      console.log("⚠️  [Email] Mock mode active: Emails will be logged to console.");
-      return { ok: true, mode: "mock" };
-    }
-
-    const hasConfig = process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER;
-    if (!hasConfig) {
-      console.log("⚠️  [Email] Mock mode active: Missing email credentials on server.");
-      return { ok: true, mode: "mock" };
-    }
-
-    await transporter.verify();
-    console.log("✅ Email transporter verified and ready.");
-    return { ok: true, mode: "real" };
-  } catch (error) {
-    console.warn(`⚠️  [Email] Transporter verification failed: ${error.message}`);
-    transporter = nodemailer.createTransport({ streamTransport: true, newline: "unix" });
-    return { ok: true, mode: "mock", error: error.message };
+  if (isMock) {
+    console.log("⚠️  [Email] Running in mock mode (MOCK_EMAIL=true or SEND_EMAILS=false).");
+    return { ok: true, mode: "mock" };
   }
+
+  if (!apiKey) {
+    console.log("⚠️  [Email] Missing RESEND_API_KEY. Falling back to mock mode.");
+    return { ok: true, mode: "mock", error: "Missing RESEND_API_KEY" };
+  }
+
+  console.log("✅ Resend API key detected and configured.");
+  return { ok: true, mode: "real" };
 }
 
+/**
+ * Sends an email using Resend API (HTTP 443).
+ */
 async function sendEmail({ to, subject, html, text }) {
+  const isMock = process.env.MOCK_EMAIL === "true" || process.env.SEND_EMAILS === "false";
+  const resend = getResendClient();
+
+  if (isMock || !resend) {
+    console.log(`⚠️  [Email Mock] To: ${to} | Subject: "${subject}"`);
+    return { success: true, messageId: "mock-" + Date.now() };
+  }
+
   try {
-    if (!transporter) {
-      transporter = getTransporter();
-    }
+    // Resend default onboarding sender or your verified domain sender
+    const fromAddress = process.env.EMAIL_FROM 
+      || process.env.FROM_EMAIL 
+      || "White Impact Initiative <onboarding@resend.dev>";
 
-    const senderEmail = process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER || "noreply@whiteimpactinitiative.org";
-    const fromAddress = process.env.EMAIL_FROM || process.env.FROM_EMAIL || `"White Impact Initiative" <${senderEmail}>`;
-
-    const info = await transporter.sendMail({
+    const { data, error } = await resend.emails.send({
       from: fromAddress,
-      to,
+      to: Array.isArray(to) ? to : [to],
       subject,
       html,
       text,
     });
 
-    console.log(`✅ Email sent to ${to}: ${info.messageId || "mock-" + Date.now()}`);
-    return { success: true, messageId: info.messageId };
+    if (error) {
+      console.error(`❌ Email send error (${to}):`, error.message);
+      return { success: false, error: error.message };
+    }
+
+    console.log(`✅ Email successfully sent to ${to}: ${data.id}`);
+    return { success: true, messageId: data.id };
   } catch (error) {
-    console.error(`❌ Email send failed (${to}):`, error.message);
+    console.error(`❌ Email execution failed (${to}):`, error.message);
     return { success: false, error: error.message };
   }
 }
 
 module.exports = {
-  getTransporter,
   testTransporter,
   sendEmail,
 };

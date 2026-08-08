@@ -64,6 +64,18 @@ function getTransporter() {
 
 async function testTransporter() {
   try {
+    // 🔍 Debug log to inspect environment variables on server start
+    console.log("🔍 [Email Debug] Environment Check:", {
+      MOCK_EMAIL: process.env.MOCK_EMAIL || "not set",
+      SEND_EMAILS: process.env.SEND_EMAILS || "not set",
+      EMAIL_SERVICE: process.env.EMAIL_SERVICE || "not set",
+      SMTP_HOST: process.env.SMTP_HOST || process.env.EMAIL_HOST || "not set",
+      SMTP_USER: process.env.SMTP_USER || process.env.EMAIL_USER ? "EXISTS" : "MISSING",
+      SMTP_PASS: process.env.SMTP_PASS || process.env.EMAIL_PASS ? "EXISTS" : "MISSING",
+      GMAIL_USER: process.env.GMAIL_USER ? "EXISTS" : "MISSING",
+      GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD ? "EXISTS" : "MISSING",
+    });
+
     transporter = getTransporter();
 
     if (process.env.MOCK_EMAIL === "true" || process.env.SEND_EMAILS === "false") {
@@ -71,9 +83,15 @@ async function testTransporter() {
       return { ok: true, mode: "mock" };
     }
 
-    const hasConfig = process.env.SMTP_HOST || process.env.EMAIL_HOST || process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER;
+    const hasConfig =
+      process.env.SMTP_HOST ||
+      process.env.EMAIL_HOST ||
+      process.env.GMAIL_USER ||
+      process.env.SMTP_USER ||
+      process.env.EMAIL_USER;
+
     if (!hasConfig) {
-      console.log("⚠️  [Email] Mock mode: Emails logged to console (configure SMTP_HOST or Gmail credentials for production)");
+      console.log("⚠️  [Email] Mock mode: Missing email credentials on server.");
       return { ok: true, mode: "mock" };
     }
 
@@ -81,8 +99,7 @@ async function testTransporter() {
     console.log("✅ Email transporter verified and ready.");
     return { ok: true, mode: "real" };
   } catch (error) {
-    const fallbackMessage = `⚠️  [Email] Transporter could not verify: ${error.message}. Falling back to mock mode.`;
-    console.warn(fallbackMessage);
+    console.warn(`⚠️  [Email] Transporter verification failed: ${error.message}`);
     transporter = nodemailer.createTransport({ streamTransport: true, newline: "unix" });
     return { ok: true, mode: "mock", error: error.message };
   }

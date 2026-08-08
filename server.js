@@ -9,7 +9,8 @@
  *   POST /api/donate/receipt   — Upload payment receipt
  *   POST /api/team/photo       — Upload team member photo
  *   GET  /api/team             — Get all team members
- *   GET  /api/health           — Health check
+ *   GET  /api/health           — Basic health check
+ *   GET  /api/health/detailed  — Comprehensive system readiness check
  */
 
 require("dotenv").config();
@@ -31,12 +32,15 @@ const teamRouter = require("./routes/team");
 const app = express();
 const PORT = process.env.PORT || 3030;
 
+/* ─── Proxy Settings for Render ─────────────────────────────────── */
+app.set("trust proxy", 1); // Fixes express-rate-limit X-Forwarded-For warning on Render
+
 /* ─── Security & Middleware ─────────────────────────────────────── */
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }, // allow img loading
 }));
 
-// Parse environment variables (trimming whitespace) or set default fallbacks
+// Parse environment variables or set default fallbacks
 const envOrigins = (process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN || "")
   .split(",")
   .map((o) => o.trim())
@@ -44,6 +48,7 @@ const envOrigins = (process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN || ""
 
 const defaultOrigins = [
   process.env.FRONTEND_URL,
+  "https://white-impact-frontend.vercel.app",
   "http://localhost:5500",
   "http://127.0.0.1:5500",
   "http://localhost:3000",
@@ -75,7 +80,7 @@ app.use(cors({
       return callback(null, true);
     }
     
-    // Returning false lets express-cors handle the denial without throwing a 500 error
+    // Returning false lets express-cors reject clean without throwing 500
     return callback(null, false);
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -123,19 +128,20 @@ app.use("/api/newsletter", newsletterRouter);
 app.use("/api/donate", donateRouter);
 app.use("/api/team", teamRouter);
 
-      // health check 
+/* ─── Health Checks ─────────────────────────────────────────────── */
 app.get("/api/health", (_req, res) => {
   res.json({ success: true, status: "ok", timestamp: new Date().toISOString() });
 });
 
 app.get("/api/health/detailed", async (_req, res) => {
-  const healthStatus = {
+  const diagnostics = {
     status: "ok",
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    checks: {
-      database: "unknown",
-      mailer: "unknown",
+    uptimeSeconds: Math.floor(process.uptime()),
+    environment: process.env.NODE_ENV || "development",
+    services: {
+      database: "testing...",
+      mailer: "testing...",
       routes: {
         contact: "configured",
         newsletter: "configured",
@@ -146,31 +152,31 @@ app.get("/api/health/detailed", async (_req, res) => {
   };
 
   try {
-    // Check Database Connection
-    const { pool } = require("./db/database"); // Adjust to your DB export
-    await pool.query("SELECT 1");
-    healthStatus.checks.database = "connected";
+    const { pool } = require("./db/database");
+    if (pool) {
+      await pool.query("SELECT 1");
+      diagnostics.services.database = "connected";
+    } else {
+      diagnostics.services.database = "not_initialized";
+    }
   } catch (err) {
-    healthStatus.status = "degraded";
-    healthStatus.checks.database = `error: ${err.message}`;
+    diagnostics.status = "degraded";
+    diagnostics.services.database = `error: ${err.message}`;
   }
 
   try {
-    // Check Mail Transporter Connection
-    const { transporter } = require("./middleware/mailer"); // Adjust to your mailer export
-    if (transporter) {
-      await transporter.verify();
-      healthStatus.checks.mailer = "connected";
-    } else {
-      healthStatus.checks.mailer = "not_configured";
+    const mailResult = await testTransporter();
+    diagnostics.services.mailer = mailResult.mode === "real" ? "connected" : `mock (${mailResult.error || "no credentials"})`;
+    if (mailResult.mode !== "real") {
+      diagnostics.status = "degraded";
     }
   } catch (err) {
-    healthStatus.status = "degraded";
-    healthStatus.checks.mailer = `error: ${err.message}`;
+    diagnostics.status = "degraded";
+    diagnostics.services.mailer = `error: ${err.message}`;
   }
 
-  const statusCode = healthStatus.status === "ok" ? 200 : 503;
-  res.status(statusCode).json(healthStatus);
+  const statusCode = diagnostics.status === "ok" ? 200 : 503;
+  res.status(statusCode).json(diagnostics);
 });
 
 /* ─── 404 & Error Handler ───────────────────────────────────────── */

@@ -14,21 +14,23 @@ function getTransporter() {
   const gmailUser = process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER;
   const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || process.env.EMAIL_PASS;
 
-  // Use SSL port 465 and force IPv4 (family: 4) to fix Render IPv6 unreachable routing errors
   if (gmailUser && gmailPass) {
     return nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 465,
-      secure: true,
+      secure: true, // SSL port 465
       auth: {
         user: gmailUser,
         pass: gmailPass,
       },
-      family: 4,
+      family: 4, // Force IPv4 to prevent Render IPv6 ENETUNREACH routing errors
+      connectionTimeout: 10000, // 10s connection timeout
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     });
   }
 
-  // Fallback: Mock transporter
+  // Fallback: Mock transporter (logs output to console)
   return nodemailer.createTransport({
     streamTransport: true,
     newline: "unix",
@@ -40,21 +42,20 @@ async function testTransporter() {
     console.log("🔍 [Email Debug] Environment Check:", {
       MOCK_EMAIL: process.env.MOCK_EMAIL || "not set",
       SEND_EMAILS: process.env.SEND_EMAILS || "not set",
-      EMAIL_SERVICE: process.env.EMAIL_SERVICE || "not set",
-      GMAIL_USER: process.env.GMAIL_USER || process.env.SMTP_USER ? "EXISTS" : "MISSING",
-      GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS ? "EXISTS" : "MISSING",
+      GMAIL_USER: process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER ? "EXISTS" : "MISSING",
+      GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || process.env.EMAIL_PASS ? "EXISTS" : "MISSING",
     });
 
     transporter = getTransporter();
 
     if (process.env.MOCK_EMAIL === "true" || process.env.SEND_EMAILS === "false") {
-      console.log("⚠️  [Email] Mock mode: Emails logged to console.");
+      console.log("⚠️  [Email] Mock mode active: Emails will be logged to console.");
       return { ok: true, mode: "mock" };
     }
 
     const hasConfig = process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER;
     if (!hasConfig) {
-      console.log("⚠️  [Email] Mock mode: Missing email credentials.");
+      console.log("⚠️  [Email] Mock mode active: Missing email credentials on server.");
       return { ok: true, mode: "mock" };
     }
 

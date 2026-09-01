@@ -46,6 +46,31 @@ function validateNewsletterForm(data) {
   };
 }
 
+function validateVolunteerForm(data) {
+  const errors = [];
+
+  if (!data.fullName || data.fullName.trim().length < 2) {
+    errors.push("Full name is required");
+  }
+
+  if (!data.email || !validateEmail(data.email)) {
+    errors.push("Valid email address is required");
+  }
+
+  if (data.phone && !validatePhone(data.phone)) {
+    errors.push("Valid phone number is required");
+  }
+
+  if (data.motivation && String(data.motivation).trim().length < 20) {
+    errors.push("Motivation must be at least 20 characters");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 function validateDonationForm(data) {
   const errors = [];
 
@@ -75,10 +100,69 @@ function validateDonationForm(data) {
   };
 }
 
+function validateAuthRegister(data) {
+  const errors = [];
+
+  if (!data.fullName || data.fullName.trim().length < 2) {
+    errors.push("Full name is required");
+  }
+
+  if (!data.email || !validateEmail(data.email)) {
+    errors.push("Valid email address is required");
+  }
+
+  if (!data.password || data.password.length < 12) {
+    errors.push("Password must be at least 12 characters");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+function validateAuthLogin(data) {
+  const errors = [];
+
+  if (!data.email || !validateEmail(data.email)) {
+    errors.push("Valid email address is required");
+  }
+
+  if (!data.password) {
+    errors.push("Password is required");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+function validatePasswordReset(data) {
+  const errors = [];
+
+  if (!data.token || data.token.length < 16) {
+    errors.push("Reset token is required");
+  }
+
+  if (!data.password || data.password.length < 12) {
+    errors.push("Password must be at least 12 characters");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 module.exports = {
   validateEmail,
   validatePhone,
   validateContactForm,
   validateNewsletterForm,
+  validateVolunteerForm,
   validateDonationForm,
+  validateAuthRegister,
+  validateAuthLogin,
+  validatePasswordReset,
 };

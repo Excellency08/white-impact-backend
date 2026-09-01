@@ -1,69 +1,119 @@
 /**
- * POST /api/contact
- * Saves a contact/Work-With-Us submission and optionally sends an email.
+ * Contact and work-with-us submissions.
  */
 
 const express = require("express");
 const router = express.Router();
 const { query } = require("../db/database");
 const { sendEmail } = require("../middleware/mailer");
+const { requireAuth, requireRole } = require("../middleware/auth");
+const { logAudit } = require("../middleware/audit");
 const { validateContactForm } = require("../middleware/validators");
 
+const ADMIN_ROLES = ["super_admin", "admin", "content_manager"];
 
-// health check 
+function requireContactAdmin(req, res, next) {
+  return requireAuth(req, res, () =>
+    requireRole(...ADMIN_ROLES)(req, res, next),
+  );
+}
+
+function normalizeValue(value, fallback = "") {
+  if (value === undefined || value === null) return fallback;
+  return String(value).trim();
+}
+
+function formatContact(row) {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    email: row.email,
+    subject: row.subject || "",
+    message: row.message || "",
+    category: row.category || "general",
+    sourcePage: row.source_page || "work-with-us",
+    status: row.status || "pending",
+    notes: row.notes || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function buildContactPayload(body, existing = {}) {
+  return {
+    fullName: normalizeValue(body.fullName || body.full_name || existing.full_name),
+    email: normalizeValue(body.email || existing.email).toLowerCase(),
+    subject: normalizeValue(body.subject || existing.subject),
+    message: normalizeValue(body.message || existing.message),
+    category: normalizeValue(body.category || existing.category || "general") || "general",
+    sourcePage: normalizeValue(body.sourcePage || body.source_page || existing.source_page || "work-with-us") || "work-with-us",
+    status: normalizeValue(body.status || existing.status || "pending") || "pending",
+    notes: normalizeValue(body.notes || existing.notes || ""),
+  };
+}
+
 router.get("/health", (_req, res) => {
   res.json({ success: true, service: "contact", status: "ok" });
 });
 
 router.post("/", async (req, res) => {
-  const { fullName, email, subject, message } = req.body;
-
-  const validation = validateContactForm({ fullName, email, subject, message });
+  const payload = buildContactPayload(req.body);
+  const validation = validateContactForm(payload);
   if (!validation.valid) {
     return res.status(400).json({ success: false, errors: validation.errors });
   }
 
   try {
     const result = await query(
-      `INSERT INTO contact_submissions (full_name, email, subject, message)
-       VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-      [fullName.trim(), email.toLowerCase().trim(), subject, message.trim()]
+      `INSERT INTO contact_submissions (
+        full_name, email, subject, message, category, source_page, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, created_at`,
+      [
+        payload.fullName,
+        payload.email,
+        payload.subject,
+        payload.message,
+        payload.category,
+        payload.sourcePage,
+        payload.status,
+      ],
     );
 
     const submission = result.rows[0];
 
-    // Send confirmation email to submitter (non-blocking)
     sendEmail({
-      to: email,
+      to: payload.email,
       subject: "We received your message — White Impact Development Initiative",
       html: `
         <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a1a2e">
-          <div style="background:#0c1f2e;padding:24px 32px;border-radius:8px 8px 0 0">
-            <h2 style="color:#fff;margin:0;font-size:20px">White Impact Development Initiative</h2>
-          </div>
-          <div style="background:#f9f9fb;padding:32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">
-            <p>Dear ${fullName},</p>
-            <p>Thank you for reaching out! We received your message and our team will respond within <strong>2 business days</strong>.</p>
-            <p><strong>Your message:</strong><br><em>${message}</em></p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-            <p style="font-size:13px;color:#6b7280">White Impact Development Initiative<br>No F5, Abubakar Plaza, Millennium City 800104, Kaduna, Nigeria<br>+234 814 660 0001 · info@whiteimpactinitiative.org</p>
-          </div>
+          <h2>White Impact Development Initiative</h2>
+          <p>Dear ${payload.fullName},</p>
+          <p>Thank you for reaching out! We received your message and our team will respond within 2 business days.</p>
+          <p><strong>Your message:</strong><br><em>${payload.message}</em></p>
         </div>
       `,
     }).catch(console.error);
 
-    // Notify staff (non-blocking)
     sendEmail({
       to: process.env.STAFF_EMAIL || "info@whiteimpactinitiative.org",
-      subject: `New contact: ${subject || "General Inquiry"} — from ${fullName}`,
+      subject: `New contact: ${payload.subject || "General Inquiry"} — from ${payload.fullName}`,
       html: `
-        <p><strong>Name:</strong> ${fullName}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Subject:</strong> ${subject || "—"}</p>
-        <p><strong>Message:</strong><br>${message}</p>
-        <p style="font-size:12px;color:#999">Submission ID: ${submission.id} · ${submission.created_at}</p>
+        <p><strong>Name:</strong> ${payload.fullName}</p>
+        <p><strong>Email:</strong> ${payload.email}</p>
+        <p><strong>Subject:</strong> ${payload.subject || "—"}</p>
+        <p><strong>Message:</strong><br>${payload.message}</p>
       `,
     }).catch(console.error);
+
+    await logAudit({
+      action: "contact.create",
+      entityType: "contact_submissions",
+      entityId: submission.id,
+      summary: `Contact submission received from ${payload.fullName}`,
+      metadata: { category: payload.category, sourcePage: payload.sourcePage },
+      req,
+    });
 
     res.status(201).json({
       success: true,
@@ -72,20 +122,148 @@ router.post("/", async (req, res) => {
     });
   } catch (err) {
     console.error("Contact submission error:", err);
-    res.status(500).json({ success: false, message: "Failed to save your message. Please try again." });
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to save your message. Please try again." });
   }
 });
 
-/* GET /api/contact — list all submissions (admin use, protect with auth in production) */
-router.get("/", async (req, res) => {
+router.get("/admin", requireContactAdmin, async (_req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, full_name, email, subject, status, created_at
-       FROM contact_submissions ORDER BY created_at DESC LIMIT 100`
+      `SELECT id, full_name, email, subject, message, category, source_page, status, notes, created_at, updated_at
+       FROM contact_submissions
+       ORDER BY created_at DESC
+       LIMIT 200`,
     );
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(formatContact) });
   } catch (err) {
+    console.error("Contact admin list error:", err);
     res.status(500).json({ success: false, message: "Failed to fetch submissions." });
+  }
+});
+
+router.get("/", requireContactAdmin, async (_req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, full_name, email, subject, message, category, source_page, status, notes, created_at, updated_at
+       FROM contact_submissions
+       ORDER BY created_at DESC
+       LIMIT 200`,
+    );
+    res.json({ success: true, data: rows.map(formatContact) });
+  } catch (err) {
+    console.error("Contact list error:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch submissions." });
+  }
+});
+
+router.put("/admin/:id", requireContactAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Valid contact id is required." });
+  }
+
+  try {
+    const existingResult = await query(
+      "SELECT * FROM contact_submissions WHERE id = $1 LIMIT 1",
+      [id],
+    );
+    if (!existingResult.rows.length) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Contact submission not found." });
+    }
+
+    const existing = existingResult.rows[0];
+    const payload = buildContactPayload(req.body, existing);
+    const validation = validateContactForm(payload);
+    if (!validation.valid) {
+      return res.status(400).json({ success: false, errors: validation.errors });
+    }
+
+    const { rows } = await query(
+      `UPDATE contact_submissions
+       SET full_name = $1,
+           email = $2,
+           subject = $3,
+           message = $4,
+           category = $5,
+           source_page = $6,
+           status = $7,
+           notes = $8,
+           updated_at = NOW()
+       WHERE id = $9
+       RETURNING *`,
+      [
+        payload.fullName,
+        payload.email,
+        payload.subject,
+        payload.message,
+        payload.category,
+        payload.sourcePage,
+        payload.status,
+        payload.notes || null,
+        id,
+      ],
+    );
+
+    await logAudit({
+      actor: req.user,
+      action: "contact.update",
+      entityType: "contact_submissions",
+      entityId: id,
+      summary: `Contact submission ${id} updated`,
+      metadata: { status: payload.status },
+      req,
+    });
+
+    res.json({ success: true, data: formatContact(rows[0]) });
+  } catch (error) {
+    console.error("Contact update error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to update contact submission." });
+  }
+});
+
+router.delete("/admin/:id", requireContactAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Valid contact id is required." });
+  }
+
+  try {
+    const existing = await query(
+      "SELECT full_name FROM contact_submissions WHERE id = $1 LIMIT 1",
+      [id],
+    );
+    if (!existing.rows.length) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Contact submission not found." });
+    }
+
+    await query("DELETE FROM contact_submissions WHERE id = $1", [id]);
+    await logAudit({
+      actor: req.user,
+      action: "contact.delete",
+      entityType: "contact_submissions",
+      entityId: id,
+      summary: `Contact submission ${id} deleted`,
+      req,
+    });
+
+    res.json({ success: true, message: "Contact submission deleted." });
+  } catch (error) {
+    console.error("Contact delete error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to delete contact submission." });
   }
 });
 

@@ -2,7 +2,7 @@
  * GET  /api/team         — Get all active team members
  * POST /api/team/photo   — Upload a team member photo (multipart/form-data)
  * PUT  /api/team/:id     — Update team member details
- */ 
+ */
 
 const express = require("express");
 const router = express.Router();
@@ -10,6 +10,7 @@ const multer = require("multer");
 const path = require("path");
 const { query } = require("../db/database");
 const fs = require("fs");
+const { requireAuth, requireRole } = require("../middleware/auth");
 
 /* ─── Multer storage config ─────────────────────────────────────── */
 const uploadsDir = path.join(__dirname, "../uploads/team");
@@ -41,65 +42,141 @@ router.get("/", async (_req, res) => {
   try {
     const { rows } = await query(
       `SELECT id, full_name, role, bio, photo_url, display_order
-       FROM team_members WHERE is_active = TRUE ORDER BY display_order ASC`
+       FROM team_members WHERE is_active = TRUE ORDER BY display_order ASC`,
     );
     res.json({ success: true, data: rows });
   } catch (err) {
     console.error("Team fetch error:", err);
-    res.status(500).json({ success: false, message: "Failed to load team members." });
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to load team members." });
   }
 });
 
-/* ─── POST /api/team/photo ──────────────────────────────────────── */
-router.post("/photo", upload.single("photo"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: "No photo uploaded." });
-  }
+/* ─── POST /api/team ────────────────────────────────────────────── */
+router.post(
+  "/",
+  requireAuth,
+  requireRole("super_admin", "admin", "content_manager"),
+  async (req, res) => {
+    const { fullName, role, bio, photoUrl, displayOrder, isActive } = req.body;
 
-  const { memberId } = req.body;
-  if (!memberId) {
-    // Remove uploaded file if no memberId
-    fs.unlink(req.file.path, () => {});
-    return res.status(400).json({ success: false, message: "memberId is required." });
-  }
-
-  const photoUrl = `/uploads/team/${req.file.filename}`;
-
-  try {
-    const { rowCount } = await query(
-      `UPDATE team_members SET photo_url = $1 WHERE id = $2 AND is_active = TRUE`,
-      [photoUrl, memberId]
-    );
-
-    if (rowCount === 0) {
-      fs.unlink(req.file.path, () => {});
-      return res.status(404).json({ success: false, message: "Team member not found." });
+    if (!fullName || !role) {
+      return res
+        .status(400)
+        .json({ success: false, message: "fullName and role are required." });
     }
 
-    res.json({ success: true, photo_url: photoUrl });
-  } catch (err) {
-    console.error("Photo upload error:", err);
-    fs.unlink(req.file.path, () => {});
-    res.status(500).json({ success: false, message: "Failed to save photo." });
-  }
-});
+    try {
+      const { rows } = await query(
+        `INSERT INTO team_members (full_name, role, bio, photo_url, display_order, is_active)
+       VALUES ($1, $2, $3, $4, COALESCE($5, 0), COALESCE($6, TRUE))
+       RETURNING id, full_name, role, bio, photo_url, display_order, is_active`,
+        [
+          fullName,
+          role,
+          bio || null,
+          photoUrl || null,
+          displayOrder,
+          typeof isActive === "boolean" ? isActive : undefined,
+        ],
+      );
+
+      res.status(201).json({ success: true, data: rows[0] });
+    } catch (err) {
+      console.error("Team create error:", err);
+      res.status(500).json({ success: false, message: "Create failed." });
+    }
+  },
+);
+
+/* ─── POST /api/team/photo ──────────────────────────────────────── */
+router.post(
+  "/photo",
+  requireAuth,
+  requireRole("super_admin", "admin", "content_manager"),
+  upload.single("photo"),
+  async (req, res) => {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No photo uploaded." });
+    }
+
+    const { memberId } = req.body;
+    if (!memberId) {
+      // Remove uploaded file if no memberId
+      fs.unlink(req.file.path, () => {});
+      return res
+        .status(400)
+        .json({ success: false, message: "memberId is required." });
+    }
+
+    const photoUrl = `/uploads/team/${req.file.filename}`;
+
+    try {
+      const { rowCount } = await query(
+        `UPDATE team_members SET photo_url = $1 WHERE id = $2 AND is_active = TRUE`,
+        [photoUrl, memberId],
+      );
+
+      if (rowCount === 0) {
+        fs.unlink(req.file.path, () => {});
+        return res
+          .status(404)
+          .json({ success: false, message: "Team member not found." });
+      }
+
+      res.json({ success: true, photo_url: photoUrl });
+    } catch (err) {
+      console.error("Photo upload error:", err);
+      fs.unlink(req.file.path, () => {});
+      res
+        .status(500)
+        .json({ success: false, message: "Failed to save photo." });
+    }
+  },
+);
 
 /* ─── PUT /api/team/:id ─────────────────────────────────────────── */
-router.put("/:id", async (req, res) => {
-  const { id } = req.params;
-  const { fullName, role, bio } = req.body;
+router.put(
+  "/:id",
+  requireAuth,
+  requireRole("super_admin", "admin", "content_manager"),
+  async (req, res) => {
+    const { id } = req.params;
+    const { fullName, role, bio, photoUrl, displayOrder, isActive } = req.body;
 
-  try {
-    const { rowCount } = await query(
-      `UPDATE team_members SET full_name=COALESCE($1,full_name), role=COALESCE($2,role), bio=COALESCE($3,bio) WHERE id=$4`,
-      [fullName, role, bio, id]
-    );
+    try {
+      const { rowCount } = await query(
+        `UPDATE team_members
+       SET full_name = COALESCE($1, full_name),
+           role = COALESCE($2, role),
+           bio = COALESCE($3, bio),
+           photo_url = COALESCE($4, photo_url),
+           display_order = COALESCE($5, display_order),
+           is_active = COALESCE($6, is_active)
+       WHERE id = $7`,
+        [
+          fullName,
+          role,
+          bio,
+          photoUrl,
+          displayOrder,
+          typeof isActive === "boolean" ? isActive : undefined,
+          id,
+        ],
+      );
 
-    if (rowCount === 0) return res.status(404).json({ success: false, message: "Member not found." });
-    res.json({ success: true, message: "Team member updated." });
-  } catch (err) {
-    res.status(500).json({ success: false, message: "Update failed." });
-  }
-});
+      if (rowCount === 0)
+        return res
+          .status(404)
+          .json({ success: false, message: "Member not found." });
+      res.json({ success: true, message: "Team member updated." });
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Update failed." });
+    }
+  },
+);
 
 module.exports = router;

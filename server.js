@@ -46,8 +46,8 @@ const { logEntry, requestLogger } = require("./middleware/logger");
 const app = express();
 const PORT = process.env.PORT || 3030;
 
-/* ─── Proxy Settings for Render ─────────────────────────────────── */
-app.set("trust proxy", 1); // Fixes express-rate-limit X-Forwarded-For warning on Render
+/* ─── Proxy Settings for hosted deployments ────────────────────── */
+app.set("trust proxy", 1); // Required when the API is behind a reverse proxy.
 
 /* ─── Security & Middleware ─────────────────────────────────────── */
 app.use(

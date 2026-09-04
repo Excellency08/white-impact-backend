@@ -6,6 +6,29 @@ const { createPoolConfig } = require("./connection-config");
 
 const pool = new Pool(createPoolConfig());
 
+async function connectWithRetry() {
+  const maxAttempts = Math.max(1, Number(process.env.DB_CONNECTION_RETRIES) || 3);
+  const retryDelayMs = Math.max(250, Number(process.env.DB_CONNECTION_RETRY_DELAY) || 1500);
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query("SELECT NOW()");
+      return client;
+    } catch (error) {
+      client?.release();
+      lastError = error;
+      if (attempt === maxAttempts) break;
+      console.warn(`⚠️ PostgreSQL connection attempt ${attempt} failed; retrying…`);
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+
+  throw lastError;
+}
+
 pool.on("error", (err) => {
   logEntry("error", "database_idle_client_error", { message: err.message });
 });
@@ -30,9 +53,8 @@ async function query(text, params = []) {
 async function initDB() {
   let client;
   try {
-    client = await pool.connect();
+    client = await connectWithRetry();
     console.log("🔌 Connecting to PostgreSQL…");
-    await client.query("SELECT NOW()");
     console.log("✅ Database connected.");
 
     await runMigrations(client);

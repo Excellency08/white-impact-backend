@@ -14,12 +14,17 @@ const { validateDonationForm } = require("../middleware/validators");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { logAudit } = require("../middleware/audit");
 
-const BANK_DETAILS = {
-  bankName: process.env.DONATION_BANK_NAME || "Access Bank",
-  accountNumber: process.env.DONATION_ACCOUNT_NUMBER || "0123456789",
-  accountName:
-    process.env.DONATION_ACCOUNT_NAME || "White Impact Development Initiative",
-};
+function getBankDetails() {
+  return {
+    bankName: String(process.env.DONATION_BANK_NAME || "").trim(),
+    accountNumber: String(process.env.DONATION_ACCOUNT_NUMBER || "").trim(),
+    accountName: String(process.env.DONATION_ACCOUNT_NAME || "").trim(),
+  };
+}
+
+function bankDetailsConfigured(bank = getBankDetails()) {
+  return Boolean(bank.bankName && bank.accountNumber && bank.accountName);
+}
 
 const receiptsDir = path.join(__dirname, "../uploads/receipts");
 if (!fs.existsSync(receiptsDir)) fs.mkdirSync(receiptsDir, { recursive: true });
@@ -131,6 +136,14 @@ router.get("/health", (_req, res) => {
 });
 
 router.post("/initiate", async (req, res) => {
+  const bank = getBankDetails();
+  if (!bankDetailsConfigured(bank)) {
+    return res.status(503).json({
+      success: false,
+      message: "Bank transfer details are not configured. Please contact the administrator.",
+    });
+  }
+
   const payload = donationPayload(req.body);
   const validation = validateDonationForm({
     fullName: payload.fullName,
@@ -183,7 +196,7 @@ router.post("/initiate", async (req, res) => {
         amountNaira: payload.amountNaira,
         programArea: payload.category,
       },
-      bank: BANK_DETAILS,
+      bank,
       donationId: rows[0].id,
       confirmationEmail: process.env.STAFF_EMAIL || "info@whiteimpactinitiative.org",
     });
@@ -207,6 +220,15 @@ router.post("/payments/initialize", async (req, res) => {
   });
   if (!validation.valid) {
     return res.status(400).json({ success: false, errors: validation.errors });
+  }
+
+  const secret = process.env.PAYSTACK_SECRET_KEY?.trim();
+  const mockPaystack = isTruthy(process.env.MOCK_PAYSTACK || "false");
+  if (!secret && !mockPaystack) {
+    return res.status(503).json({
+      success: false,
+      message: "Online payments are not configured. Please use bank transfer or contact the administrator.",
+    });
   }
 
   const idempotencyKey = payload.idempotencyKey || sha256(`${payload.email}:${payload.amountNaira}:${payload.category}:${payload.fullName}`);
@@ -244,10 +266,9 @@ router.post("/payments/initialize", async (req, res) => {
     );
 
     const donation = rows[0];
-    const secret = process.env.PAYSTACK_SECRET_KEY?.trim();
     const baseUrl = process.env.SITE_URL || process.env.FRONTEND_URL || "https://whiteimpactinitiative.org";
 
-    if (!secret || isTruthy(process.env.MOCK_PAYSTACK || "true")) {
+    if (mockPaystack) {
       const authorizationUrl = `${baseUrl.replace(/\/$/, "")}/donate.html?reference=${encodeURIComponent(reference)}&mock=1`;
       await query(
         `UPDATE donations SET paystack_data = $2::jsonb, payment_reference = $3, updated_at = NOW() WHERE id = $1`,
@@ -286,7 +307,25 @@ router.post("/payments/initialize", async (req, res) => {
         callback_url: `${baseUrl.replace(/\/$/, "")}/donate.html`,
       }),
     });
-    const json = await response.json();
+    const responseText = await response.text();
+    let json;
+    try {
+      json = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      json = {};
+    }
+
+    if (!response.ok || !json.status || !json.data?.authorization_url) {
+      console.error("Paystack initialization rejected:", response.status, json.message || "unknown provider response");
+      await query(
+        `UPDATE donations SET payment_status = 'failed', status = 'payment_failed', paystack_data = $2::jsonb, updated_at = NOW() WHERE id = $1`,
+        [donation.id, JSON.stringify({ status: response.status, message: json.message || "Payment provider rejected the request." })],
+      );
+      return res.status(502).json({
+        success: false,
+        message: "Online payment could not be initialized. Please try bank transfer or try again later.",
+      });
+    }
 
     await query(
       `UPDATE donations
@@ -317,7 +356,7 @@ router.post(
     const rawBody = req.body?.length ? req.body.toString("utf8") : "";
     const signature = req.get("x-paystack-signature") || "";
     const mockSignature = req.get("x-mock-signature") || "";
-    const isMockAllowed = isTruthy(process.env.MOCK_PAYSTACK || "true");
+    const isMockAllowed = isTruthy(process.env.MOCK_PAYSTACK || "false");
     const computed = secret
       ? crypto.createHmac("sha512", secret).update(rawBody).digest("hex")
       : "";

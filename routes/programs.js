@@ -510,6 +510,12 @@ router.put("/admin/:id", requireProgramAdmin, async (req, res) => {
     res.json({ success: true, data: formatProgram(rows[0]) });
   } catch (error) {
     console.error("Program update error:", error);
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "That program slug is already in use. Choose a unique slug.",
+      });
+    }
     res
       .status(500)
       .json({ success: false, message: "Failed to update program." });

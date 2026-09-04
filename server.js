@@ -187,6 +187,16 @@ app.use("/api/v1/volunteers", volunteersRouter);
 app.use("/api/v1/search", searchRouter);
 app.use("/api/v1/analytics", analyticsRouter);
 
+app.get("/", (_req, res) => {
+  res.json({
+    success: true,
+    name: "White Impact API",
+    status: "ok",
+    health: "/api/health",
+    api: "/api",
+  });
+});
+
 app.get("/robots.txt", (_req, res) => {
   res
     .type("text/plain")

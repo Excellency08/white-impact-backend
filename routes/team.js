@@ -40,6 +40,7 @@ const upload = multer({
 /* ─── GET /api/team ─────────────────────────────────────────────── */
 router.get("/", async (_req, res) => {
   try {
+    res.set("Cache-Control", "no-store");
     const { rows } = await query(
       `SELECT id, full_name, role, bio, photo_url, display_order
        FROM team_members WHERE is_active = TRUE ORDER BY display_order ASC`,
@@ -52,6 +53,28 @@ router.get("/", async (_req, res) => {
       .json({ success: false, message: "Failed to load team members." });
   }
 });
+
+/* ─── GET /api/team/admin ──────────────────────────────────────── */
+router.get(
+  "/admin",
+  requireAuth,
+  requireRole("super_admin", "admin", "content_manager"),
+  async (_req, res) => {
+    try {
+      res.set("Cache-Control", "no-store");
+      const { rows } = await query(
+        `SELECT id, full_name, role, bio, photo_url, display_order, is_active
+         FROM team_members ORDER BY display_order ASC, id ASC`,
+      );
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      console.error("Admin team fetch error:", err);
+      res
+        .status(500)
+        .json({ success: false, message: "Failed to load team members." });
+    }
+  },
+);
 
 /* ─── POST /api/team ────────────────────────────────────────────── */
 router.post(
@@ -148,7 +171,7 @@ router.put(
     const { fullName, role, bio, photoUrl, displayOrder, isActive } = req.body;
 
     try {
-      const { rowCount } = await query(
+      const { rows } = await query(
         `UPDATE team_members
        SET full_name = COALESCE($1, full_name),
            role = COALESCE($2, role),
@@ -156,7 +179,8 @@ router.put(
            photo_url = COALESCE($4, photo_url),
            display_order = COALESCE($5, display_order),
            is_active = COALESCE($6, is_active)
-       WHERE id = $7`,
+       WHERE id = $7
+       RETURNING id, full_name, role, bio, photo_url, display_order, is_active`,
         [
           fullName,
           role,
@@ -168,11 +192,15 @@ router.put(
         ],
       );
 
-      if (rowCount === 0)
+      if (rows.length === 0)
         return res
           .status(404)
           .json({ success: false, message: "Member not found." });
-      res.json({ success: true, message: "Team member updated." });
+      res.json({
+        success: true,
+        message: "Team member updated.",
+        data: rows[0],
+      });
     } catch (err) {
       res.status(500).json({ success: false, message: "Update failed." });
     }

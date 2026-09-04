@@ -112,10 +112,17 @@ async function fetchPrograms(whereClause = "", params = []) {
       id, slug, title, summary, description, body_copy, hero_image_url, hero_image_alt,
       card_icon, card_summary, page_url, cta_label, cta_url, status, status_label,
       status_detail, hero_stats, feature_items, objectives, activities, beneficiaries,
-      locations, timeline, gallery, impact_metrics, stories, reports, partners,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('url', g.image_url, 'alt', g.alt_text, 'caption', g.caption) ORDER BY g.display_order, g.id) FROM program_gallery g WHERE g.program_id = p.id), p.gallery) AS gallery,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('label', m.label, 'value', m.value, 'description', m.description, 'icon', m.icon, 'category', m.category) ORDER BY m.display_order, m.id) FROM program_impact_metrics m WHERE m.program_id = p.id), p.impact_metrics) AS impact_metrics,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('title', b.title, 'summary', b.description, 'imageUrl', b.image_url) ORDER BY b.display_order, b.id) FROM program_beneficiaries b WHERE b.program_id = p.id), p.beneficiaries) AS beneficiaries,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('title', l.name, 'summary', l.description, 'country', l.country, 'state', l.state, 'city', l.city) ORDER BY l.display_order, l.id) FROM program_locations l WHERE l.program_id = p.id), p.locations) AS locations,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('year', t.milestone_date, 'title', t.title, 'summary', t.description) ORDER BY t.display_order, t.id) FROM program_timeline t WHERE t.program_id = p.id), p.timeline) AS timeline,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('title', s.title, 'slug', s.slug, 'excerpt', s.excerpt) ORDER BY ps.display_order, ps.id) FROM program_stories ps JOIN stories s ON s.id = ps.story_id WHERE ps.program_id = p.id), p.stories) AS stories,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('title', pr.title, 'url', pr.file_url, 'description', pr.description) ORDER BY pr.display_order, pr.id) FROM program_reports pr WHERE pr.program_id = p.id), p.reports) AS reports,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('title', partner.name, 'description', partner.description, 'logoUrl', partner.logo_url) ORDER BY pp.display_order, pp.id) FROM program_partners pp JOIN partners partner ON partner.id = pp.partner_id WHERE pp.program_id = p.id), p.partners) AS partners,
       seo_title, seo_description, display_order, is_featured, is_active, updated_by,
       created_at, updated_at
-    FROM programs
+    FROM programs p
     ${whereClause}
     ORDER BY display_order ASC, title ASC
   `;
@@ -268,27 +275,18 @@ router.get("/admin", requireProgramAdmin, async (_req, res) => {
 router.get("/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
-    const { rows } = await query(
-      `SELECT
-        id, slug, title, summary, description, body_copy, hero_image_url, hero_image_alt,
-        card_icon, card_summary, page_url, cta_label, cta_url, status, status_label,
-        status_detail, hero_stats, feature_items, objectives, activities, beneficiaries,
-        locations, timeline, gallery, impact_metrics, stories, reports, partners,
-        seo_title, seo_description, display_order, is_featured, is_active, updated_by,
-        created_at, updated_at
-       FROM programs
-       WHERE slug = $1 AND is_active = TRUE
-       LIMIT 1`,
+    const programs = await fetchPrograms(
+      "WHERE p.slug = $1 AND p.is_active = TRUE",
       [slug],
     );
 
-    if (!rows.length) {
+    if (!programs.length) {
       return res
         .status(404)
         .json({ success: false, message: "Program not found." });
     }
 
-    res.json({ success: true, data: formatProgram(rows[0]) });
+    res.json({ success: true, data: programs[0] });
   } catch (error) {
     console.error("Program detail error:", error);
     res
@@ -515,6 +513,152 @@ router.put("/admin/:id", requireProgramAdmin, async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Failed to update program." });
+  }
+});
+
+const PROGRAM_CHILDREN = {
+  beneficiaries: {
+    table: "program_beneficiaries",
+    columns: ["title", "description", "image_url", "display_order"],
+    required: ["title"],
+    map: (body) => ({
+      title: String(body.title || "").trim(),
+      description: String(body.description || "").trim() || null,
+      image_url: String(body.imageUrl || body.image_url || "").trim() || null,
+      display_order: toNumber(body.displayOrder ?? body.display_order, 0),
+    }),
+  },
+  locations: {
+    table: "program_locations",
+    columns: ["name", "description", "country", "state", "city", "display_order"],
+    required: ["name"],
+    map: (body) => ({
+      name: String(body.name || body.title || "").trim(),
+      description: String(body.description || body.summary || "").trim() || null,
+      country: String(body.country || "").trim() || null,
+      state: String(body.state || "").trim() || null,
+      city: String(body.city || "").trim() || null,
+      display_order: toNumber(body.displayOrder ?? body.display_order, 0),
+    }),
+  },
+  timeline: {
+    table: "program_timeline",
+    columns: ["milestone_date", "title", "description", "display_order"],
+    required: ["milestone_date", "title"],
+    map: (body) => ({
+      milestone_date: String(body.milestoneDate || body.year || "").trim(),
+      title: String(body.title || "").trim(),
+      description: String(body.description || body.summary || "").trim() || null,
+      display_order: toNumber(body.displayOrder ?? body.display_order, 0),
+    }),
+  },
+  gallery: {
+    table: "program_gallery",
+    columns: ["image_url", "alt_text", "caption", "display_order"],
+    required: ["image_url"],
+    map: (body) => ({
+      image_url: String(body.imageUrl || body.url || body.image_url || "").trim(),
+      alt_text: String(body.altText || body.alt || body.alt_text || "").trim() || null,
+      caption: String(body.caption || "").trim() || null,
+      display_order: toNumber(body.displayOrder ?? body.display_order, 0),
+    }),
+  },
+  impactMetrics: {
+    table: "program_impact_metrics",
+    columns: ["label", "value", "description", "icon", "category", "display_order"],
+    required: ["label", "value"],
+    map: (body) => ({
+      label: String(body.label || "").trim(),
+      value: String(body.value ?? "").trim(),
+      description: String(body.description || "").trim() || null,
+      icon: String(body.icon || "").trim() || null,
+      category: String(body.category || "").trim() || null,
+      display_order: toNumber(body.displayOrder ?? body.display_order, 0),
+    }),
+  },
+};
+
+function childConfig(name) {
+  return PROGRAM_CHILDREN[name] || null;
+}
+
+async function ensureProgram(programId) {
+  const result = await query("SELECT id FROM programs WHERE id = $1 LIMIT 1", [programId]);
+  return result.rows.length > 0;
+}
+
+function childRecord(row, name) {
+  if (name === "beneficiaries") return { id: row.id, title: row.title, description: row.description || "", imageUrl: row.image_url || "", displayOrder: row.display_order };
+  if (name === "locations") return { id: row.id, name: row.name, description: row.description || "", country: row.country || "", state: row.state || "", city: row.city || "", displayOrder: row.display_order };
+  if (name === "timeline") return { id: row.id, milestoneDate: row.milestone_date, title: row.title, description: row.description || "", displayOrder: row.display_order };
+  if (name === "gallery") return { id: row.id, imageUrl: row.image_url, altText: row.alt_text || "", caption: row.caption || "", displayOrder: row.display_order };
+  return { id: row.id, label: row.label, value: row.value, description: row.description || "", icon: row.icon || "", category: row.category || "", displayOrder: row.display_order };
+}
+
+router.get("/admin/:programId/:collection", requireProgramAdmin, async (req, res) => {
+  const programId = Number(req.params.programId);
+  const config = childConfig(req.params.collection);
+  if (!programId || !config) return res.status(400).json({ success: false, message: "Invalid program content collection." });
+  try {
+    if (!(await ensureProgram(programId))) return res.status(404).json({ success: false, message: "Program not found." });
+    const { rows } = await query(`SELECT * FROM ${config.table} WHERE program_id = $1 ORDER BY display_order ASC, id ASC`, [programId]);
+    res.json({ success: true, data: rows.map((row) => childRecord(row, req.params.collection)) });
+  } catch (error) {
+    console.error("Program child list error:", error);
+    res.status(500).json({ success: false, message: "Failed to load program content." });
+  }
+});
+
+router.post("/admin/:programId/:collection", requireProgramAdmin, async (req, res) => {
+  const programId = Number(req.params.programId);
+  const config = childConfig(req.params.collection);
+  if (!programId || !config) return res.status(400).json({ success: false, message: "Invalid program content collection." });
+  const values = config.map(req.body || {});
+  if (config.required.some((field) => !values[field])) return res.status(400).json({ success: false, message: "Required program content fields are missing." });
+  try {
+    if (!(await ensureProgram(programId))) return res.status(404).json({ success: false, message: "Program not found." });
+    const columns = ["program_id", ...config.columns];
+    const params = [programId, ...config.columns.map((column) => values[column])];
+    const placeholders = params.map((_, index) => `$${index + 1}`).join(",");
+    const { rows } = await query(`INSERT INTO ${config.table} (${columns.join(",")}) VALUES (${placeholders}) RETURNING *`, params);
+    res.status(201).json({ success: true, data: childRecord(rows[0], req.params.collection) });
+  } catch (error) {
+    console.error("Program child create error:", error);
+    res.status(500).json({ success: false, message: "Failed to add program content." });
+  }
+});
+
+router.put("/admin/:programId/:collection/:id", requireProgramAdmin, async (req, res) => {
+  const programId = Number(req.params.programId);
+  const childId = Number(req.params.id);
+  const config = childConfig(req.params.collection);
+  if (!programId || !childId || !config) return res.status(400).json({ success: false, message: "Invalid program content record." });
+  const values = config.map(req.body || {});
+  if (config.required.some((field) => !values[field])) return res.status(400).json({ success: false, message: "Required program content fields are missing." });
+  try {
+    const assignments = config.columns.map((column, index) => `${column} = $${index + 1}`).join(", ");
+    const params = [...config.columns.map((column) => values[column]), programId, childId];
+    const { rows } = await query(`UPDATE ${config.table} SET ${assignments}, updated_at = NOW() WHERE program_id = $${config.columns.length + 1} AND id = $${config.columns.length + 2} RETURNING *`, params);
+    if (!rows.length) return res.status(404).json({ success: false, message: "Program content record not found." });
+    res.json({ success: true, data: childRecord(rows[0], req.params.collection) });
+  } catch (error) {
+    console.error("Program child update error:", error);
+    res.status(500).json({ success: false, message: "Failed to update program content." });
+  }
+});
+
+router.delete("/admin/:programId/:collection/:id", requireProgramAdmin, async (req, res) => {
+  const programId = Number(req.params.programId);
+  const childId = Number(req.params.id);
+  const config = childConfig(req.params.collection);
+  if (!programId || !childId || !config) return res.status(400).json({ success: false, message: "Invalid program content record." });
+  try {
+    const result = await query(`DELETE FROM ${config.table} WHERE program_id = $1 AND id = $2`, [programId, childId]);
+    if (!result.rowCount) return res.status(404).json({ success: false, message: "Program content record not found." });
+    res.json({ success: true, message: "Program content removed." });
+  } catch (error) {
+    console.error("Program child delete error:", error);
+    res.status(500).json({ success: false, message: "Failed to remove program content." });
   }
 });
 

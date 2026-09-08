@@ -11,6 +11,10 @@ function getSslConfig() {
 }
 
 function createPoolConfig(connectionString = process.env.DATABASE_URL) {
+  if (!connectionString?.trim()) {
+    throw new Error("DATABASE_URL is required for the Supabase PostgreSQL connection.");
+  }
+
   const config = {
     max: Number(process.env.DB_POOL_MAX) || 10,
     idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT) || 30000,
@@ -18,18 +22,7 @@ function createPoolConfig(connectionString = process.env.DATABASE_URL) {
     ssl: getSslConfig(),
   };
 
-  if (connectionString?.trim()) {
-    return { ...config, connectionString: connectionString.trim() };
-  }
-
-  return {
-    ...config,
-    host: process.env.DB_HOST || "localhost",
-    port: Number(process.env.DB_PORT) || 5432,
-    database: process.env.DB_NAME || "whiteimpact",
-    user: process.env.DB_USER || "postgres",
-    password: process.env.DB_PASSWORD || "",
-  };
+  return { ...config, connectionString: connectionString.trim() };
 }
 
 module.exports = { createPoolConfig };

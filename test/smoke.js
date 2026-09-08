@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
 
-const baseUrl = (process.env.SMOKE_BASE_URL || "http://localhost:3030").replace(/\/$/, "");
+const baseUrl = (process.env.SMOKE_BASE_URL || "http://localhost:3030").replace(
+  /\/$/,
+  "",
+);
 
 async function request(path, options) {
   const response = await fetch(`${baseUrl}${path}`, options);

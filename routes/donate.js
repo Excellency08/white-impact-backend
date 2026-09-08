@@ -2,7 +2,6 @@
  * Donation support with bank transfer receipts and online payment tracking.
  */
 
-const crypto = require("crypto");
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
@@ -48,15 +47,13 @@ function normalizeReference(value) {
     .slice(0, 80);
 }
 
-function sha256(value) {
-  return crypto.createHash("sha256").update(String(value)).digest("hex");
-}
-
-function isTruthy(value) {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return value !== 0;
-  if (typeof value !== "string") return Boolean(value);
-  return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function formatDonation(row) {
@@ -208,236 +205,6 @@ router.post("/initiate", async (req, res) => {
   }
 });
 
-router.post("/payments/initialize", async (req, res) => {
-  const payload = donationPayload(req.body);
-  const validation = validateDonationForm({
-    fullName: payload.fullName,
-    email: payload.email,
-    phone: payload.phone,
-    amount: payload.amountNaira,
-    category: payload.category,
-    message: payload.message,
-  });
-  if (!validation.valid) {
-    return res.status(400).json({ success: false, errors: validation.errors });
-  }
-
-  const secret = process.env.PAYSTACK_SECRET_KEY?.trim();
-  const mockPaystack = isTruthy(process.env.MOCK_PAYSTACK || "false");
-  if (!secret && !mockPaystack) {
-    return res.status(503).json({
-      success: false,
-      message: "Online payments are not configured. Please use bank transfer or contact the administrator.",
-    });
-  }
-
-  const idempotencyKey = payload.idempotencyKey || sha256(`${payload.email}:${payload.amountNaira}:${payload.category}:${payload.fullName}`);
-  try {
-    const existing = await query(
-      `SELECT * FROM donations WHERE idempotency_key = $1 LIMIT 1`,
-      [idempotencyKey],
-    );
-    if (existing.rows.length) {
-      return res.json({
-        success: true,
-        idempotent: true,
-        data: formatDonation(existing.rows[0]),
-      });
-    }
-
-    const reference = `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-    const { rows } = await query(
-      `INSERT INTO donations (
-        reference, full_name, email, phone, amount_kobo, amount_naira, program_area,
-        message, status, payment_provider, payment_status, idempotency_key
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'payment_pending','paystack','initialized',$9)
-      RETURNING *`,
-      [
-        reference,
-        payload.fullName,
-        payload.email,
-        payload.phone || null,
-        payload.amountKobo,
-        Math.round(payload.amountNaira),
-        payload.category,
-        payload.message || null,
-        idempotencyKey,
-      ],
-    );
-
-    const donation = rows[0];
-    const baseUrl = process.env.SITE_URL || process.env.FRONTEND_URL || "https://whiteimpactinitiative.org";
-
-    if (mockPaystack) {
-      const authorizationUrl = `${baseUrl.replace(/\/$/, "")}/donate.html?reference=${encodeURIComponent(reference)}&mock=1`;
-      await query(
-        `UPDATE donations SET paystack_data = $2::jsonb, payment_reference = $3, updated_at = NOW() WHERE id = $1`,
-        [
-          donation.id,
-          JSON.stringify({ authorization_url: authorizationUrl, access_code: reference, mock: true }),
-          reference,
-        ],
-      );
-      return res.json({
-        success: true,
-        data: formatDonation({ ...donation, payment_reference: reference, paystack_data: { authorization_url: authorizationUrl, mock: true } }),
-        authorizationUrl,
-        accessCode: reference,
-        message: "Mock payment session created.",
-      });
-    }
-
-    const response = await fetch("https://api.paystack.co/transaction/initialize", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secret}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": idempotencyKey,
-      },
-      body: JSON.stringify({
-        email: payload.email,
-        amount: payload.amountKobo,
-        reference,
-        metadata: {
-          donationId: donation.id,
-          fullName: payload.fullName,
-          programArea: payload.category,
-          message: payload.message,
-        },
-        callback_url: `${baseUrl.replace(/\/$/, "")}/donate.html`,
-      }),
-    });
-    const responseText = await response.text();
-    let json;
-    try {
-      json = responseText ? JSON.parse(responseText) : {};
-    } catch {
-      json = {};
-    }
-
-    if (!response.ok || !json.status || !json.data?.authorization_url) {
-      console.error("Paystack initialization rejected:", response.status, json.message || "unknown provider response");
-      await query(
-        `UPDATE donations SET payment_status = 'failed', status = 'payment_failed', paystack_data = $2::jsonb, updated_at = NOW() WHERE id = $1`,
-        [donation.id, JSON.stringify({ status: response.status, message: json.message || "Payment provider rejected the request." })],
-      );
-      return res.status(502).json({
-        success: false,
-        message: "Online payment could not be initialized. Please try bank transfer or try again later.",
-      });
-    }
-
-    await query(
-      `UPDATE donations
-       SET payment_reference = $2,
-           paystack_data = $3::jsonb,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [donation.id, reference, JSON.stringify(json.data || {})],
-    );
-
-    res.json({
-      success: true,
-      data: formatDonation({ ...donation, payment_reference: reference, paystack_data: json.data || {} }),
-      authorizationUrl: json.data?.authorization_url || "",
-      accessCode: json.data?.access_code || "",
-    });
-  } catch (error) {
-    console.error("Payment initialization error:", error);
-    res.status(500).json({ success: false, message: "Failed to initialize payment." });
-  }
-});
-
-router.post(
-  "/webhook/paystack",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    const secret = process.env.PAYSTACK_SECRET_KEY?.trim();
-    const rawBody = req.body?.length ? req.body.toString("utf8") : "";
-    const signature = req.get("x-paystack-signature") || "";
-    const mockSignature = req.get("x-mock-signature") || "";
-    const isMockAllowed = isTruthy(process.env.MOCK_PAYSTACK || "false");
-    const computed = secret
-      ? crypto.createHmac("sha512", secret).update(rawBody).digest("hex")
-      : "";
-    const signatureValid =
-      (secret && signature && computed === signature) ||
-      (isMockAllowed && mockSignature === "mock-paystack");
-
-    let event;
-    try {
-      event = rawBody ? JSON.parse(rawBody) : req.body;
-    } catch {
-      return res.status(400).json({ success: false, message: "Invalid webhook payload." });
-    }
-
-    const providerEventId = String(event?.id || event?.event_id || event?.data?.id || "").trim() || crypto.randomUUID();
-    const eventType = String(event?.event || event?.type || "webhook").trim();
-
-    try {
-      const stored = await query(
-        `INSERT INTO donation_webhook_events (
-          provider, event_id, event_type, payload, signature_valid, processed_at
-        ) VALUES ($1,$2,$3,$4::jsonb,$5,NOW())
-        ON CONFLICT (provider, event_id) DO NOTHING
-        RETURNING id`,
-        ["paystack", providerEventId, eventType, JSON.stringify(event || {}), signatureValid],
-      );
-
-      if (!stored.rows.length) {
-        return res.json({ success: true, deduped: true });
-      }
-
-      if (!signatureValid) {
-        return res.status(401).json({ success: false, message: "Invalid webhook signature." });
-      }
-
-      const reference =
-        event?.data?.reference ||
-        event?.data?.metadata?.reference ||
-        event?.data?.metadata?.donationReference ||
-        event?.reference ||
-        "";
-
-      if (reference) {
-        const paymentStatus =
-          eventType === "charge.success" || event?.data?.status === "success"
-            ? "succeeded"
-            : event?.data?.status || "processing";
-        const isSucceeded = paymentStatus === "succeeded";
-        await query(
-          `UPDATE donations
-           SET payment_status = $2,
-               status = CASE WHEN $5::boolean THEN 'verified'::varchar ELSE status END,
-               paystack_data = COALESCE(paystack_data, '{}'::jsonb) || $3::jsonb,
-               provider_payload = $3::jsonb,
-               provider_event_id = $4,
-               webhook_verified_at = NOW(),
-               paid_at = CASE WHEN $5::boolean THEN COALESCE(paid_at, NOW()) ELSE paid_at END,
-               verified_at = CASE WHEN $5::boolean THEN COALESCE(verified_at, NOW()) ELSE verified_at END,
-               updated_at = NOW()
-           WHERE reference = $1`,
-          [reference, paymentStatus, JSON.stringify(event || {}), providerEventId, isSucceeded],
-        );
-      }
-
-      await logAudit({
-        action: "donation.webhook",
-        entityType: "donations",
-        entityId: reference || providerEventId,
-        summary: `Donation webhook processed for ${reference || providerEventId}`,
-        metadata: { eventType, signatureValid },
-        req,
-      });
-
-      return res.json({ success: true });
-    } catch (error) {
-      console.error("Donation webhook error:", error);
-      return res.status(500).json({ success: false, message: "Webhook processing failed." });
-    }
-  },
-);
-
 router.post("/receipt", receiptUpload.single("receipt"), async (req, res) => {
   const reference = normalizeReference(req.body.reference);
 
@@ -585,13 +352,19 @@ router.put("/admin/:id", requireAuth, requireRole("super_admin", "admin", "finan
     const row = existing.rows[0];
     const nextStatus = String(req.body.status || row.status || "pending").trim();
     const nextPaymentStatus = String(req.body.paymentStatus || row.payment_status || nextStatus).trim();
+    const wasApproved = row.status === "verified" || row.payment_status === "succeeded";
+    const isApproved = nextStatus === "verified" || nextPaymentStatus === "succeeded";
+    const confirmationMethod = req.body.confirmationMethod || (isApproved ? "admin_approved" : null);
+    const approvalMessage = String(req.body.approvalMessage || "")
+      .trim()
+      .slice(0, 2000);
     const { rows } = await query(
       `UPDATE donations
-       SET status = $1,
-           payment_status = $2,
+       SET status = $1::varchar,
+           payment_status = $2::varchar,
            confirmation_method = COALESCE($3, confirmation_method),
-           verified_at = CASE WHEN $2 = 'succeeded' THEN COALESCE(verified_at, NOW()) ELSE verified_at END,
-           paid_at = CASE WHEN $2 = 'succeeded' THEN COALESCE(paid_at, NOW()) ELSE paid_at END,
+           verified_at = CASE WHEN $2::varchar = 'succeeded' THEN COALESCE(verified_at, NOW()) ELSE verified_at END,
+           paid_at = CASE WHEN $2::varchar = 'succeeded' THEN COALESCE(paid_at, NOW()) ELSE paid_at END,
            verified_by = $4,
            updated_at = NOW()
        WHERE id = $5
@@ -599,7 +372,7 @@ router.put("/admin/:id", requireAuth, requireRole("super_admin", "admin", "finan
       [
         nextStatus,
         nextPaymentStatus,
-        req.body.confirmationMethod || null,
+        confirmationMethod,
         req.user.id,
         id,
       ],
@@ -615,7 +388,43 @@ router.put("/admin/:id", requireAuth, requireRole("super_admin", "admin", "finan
       req,
     });
 
-    res.json({ success: true, data: formatDonation(rows[0]) });
+    let emailSent = null;
+    if (isApproved && !wasApproved) {
+      const approvedDonation = rows[0];
+      const donorName = escapeHtml(approvedDonation.full_name || "there");
+      const reference = escapeHtml(approvedDonation.reference);
+      const amount = Number(approvedDonation.amount_naira || 0).toLocaleString();
+      const appreciationMessage = approvalMessage ||
+        "Thank you for supporting our work and helping us create lasting impact in our communities.";
+      const emailResult = await sendEmail({
+        to: approvedDonation.email,
+        subject: `Donation approved — ${approvedDonation.reference}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#001a4d">
+            <h2>Thank you, ${donorName}</h2>
+            <p>We have received and approved your donation to White Impact Development Initiative.</p>
+            <p><strong>Reference:</strong> ${reference}</p>
+            <p><strong>Amount:</strong> ₦${amount}</p>
+            <p>${escapeHtml(appreciationMessage).replaceAll("\n", "<br>")}</p>
+            <p>With appreciation,<br>White Impact Development Initiative</p>
+          </div>
+        `,
+        text: `Thank you, ${approvedDonation.full_name || "there"}. Your donation (${approvedDonation.reference}) of ₦${amount} has been received and approved by White Impact Development Initiative.\n\n${appreciationMessage}`,
+      });
+      emailSent = emailResult.success === true;
+    }
+
+    res.json({
+      success: true,
+      data: formatDonation(rows[0]),
+      emailSent,
+      message:
+        emailSent === false
+          ? "Donation approved, but the donor email could not be sent."
+          : isApproved && !wasApproved
+            ? "Donation approved and donor notified."
+            : "Donation updated successfully.",
+    });
   } catch (error) {
     console.error("Donation update error:", error);
     res.status(500).json({ success: false, message: "Failed to update donation." });

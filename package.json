@@ -15,9 +15,11 @@
     "db:test:storage": "node scripts/test-storage-policy-catalog.js",
     "db:audit:auth": "node scripts/audit-auth.js",
     "db:prepare:auth-mapping": "node scripts/prepare-auth-mapping.js",
+    "auth:set-password": "node scripts/set-supabase-admin-password.js",
     "test": "node test/smoke.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "argon2": "^0.45.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

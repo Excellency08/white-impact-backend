@@ -8,6 +8,13 @@
     "dev": "nodemon server.js",
     "whiteimpact": "node server.js",
     "db:migrate": "node db/migrate.js",
+    "db:verify:supabase": "node scripts/verify-supabase-schema.js",
+    "db:audit:rls": "node scripts/audit-rls.js",
+    "db:test:rls": "node scripts/test-rls-boundaries.js",
+    "db:test:rbac": "node scripts/test-rbac-policy-catalog.js",
+    "db:test:storage": "node scripts/test-storage-policy-catalog.js",
+    "db:audit:auth": "node scripts/audit-auth.js",
+    "db:prepare:auth-mapping": "node scripts/prepare-auth-mapping.js",
     "test": "node test/smoke.js"
   },
   "dependencies": {

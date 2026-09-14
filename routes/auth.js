@@ -113,6 +113,221 @@ router.get("/health", (_req, res) => {
   res.json({ success: true, service: "auth", status: "ok" });
 });
 
+function getSupabasePublicConfig() {
+  return {
+    url: String(process.env.SUPABASE_URL || "").trim().replace(/\/$/, ""),
+    key: String(
+      process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || "",
+    ).trim(),
+  };
+}
+
+async function getSupabaseUserFromAccessToken(accessToken) {
+  const { url, key } = getSupabasePublicConfig();
+  if (!url || !key) {
+    const error = new Error("Supabase public auth configuration is unavailable.");
+    error.code = "SUPABASE_AUTH_CONFIG_MISSING";
+    throw error;
+  }
+
+  const response = await fetch(`${url}/auth/v1/user`, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = new Error("Supabase access token was rejected.");
+    error.code = "SUPABASE_AUTH_TOKEN_INVALID";
+    throw error;
+  }
+
+  return response.json();
+}
+
+router.post("/supabase/link", async (req, res) => {
+  const header = req.headers.authorization || "";
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({
+      success: false,
+      message: "A Supabase Auth access token is required.",
+    });
+  }
+
+  try {
+    const supabaseUser = await getSupabaseUserFromAccessToken(match[1]);
+    const authUserId = String(supabaseUser.id || "").trim();
+    const email = String(supabaseUser.email || "").trim().toLowerCase();
+    const emailVerified = Boolean(
+      supabaseUser.email_confirmed_at || supabaseUser.confirmed_at,
+    );
+
+    if (!authUserId || !email || !emailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: "A verified Supabase email is required before linking.",
+      });
+    }
+
+    const existingUser = await query(
+      `SELECT id, full_name, email, role, is_active, is_email_verified
+       FROM users
+       WHERE LOWER(email) = $1
+       LIMIT 1`,
+      [email],
+    );
+    const applicationUser = existingUser.rows[0];
+
+    if (!applicationUser || !applicationUser.is_active || !applicationUser.is_email_verified) {
+      return res.status(404).json({
+        success: false,
+        message: "No eligible existing application account matches this verified email.",
+      });
+    }
+
+    const authMapping = await query(
+      `SELECT user_id, auth_user_id
+       FROM user_auth_mapping
+       WHERE user_id = $1 OR auth_user_id = $2
+       ORDER BY user_id
+       LIMIT 2`,
+      [applicationUser.id, authUserId],
+    );
+
+    const conflictingMapping = authMapping.rows.find(
+      (mapping) =>
+        Number(mapping.user_id) !== Number(applicationUser.id) ||
+        String(mapping.auth_user_id) !== authUserId,
+    );
+    if (conflictingMapping) {
+      return res.status(409).json({
+        success: false,
+        message: "This Supabase Auth account is already linked to another application account.",
+      });
+    }
+
+    const mapping = await query(
+      `INSERT INTO user_auth_mapping (user_id, auth_user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE
+       SET updated_at = NOW()
+       WHERE user_auth_mapping.auth_user_id = EXCLUDED.auth_user_id
+       RETURNING user_id, auth_user_id, created_at, updated_at`,
+      [applicationUser.id, authUserId],
+    );
+
+    if (!mapping.rows.length) {
+      return res.status(409).json({
+        success: false,
+        message: "The application account is already linked to a different Auth account.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      linked: true,
+      data: {
+        applicationUserId: applicationUser.id,
+        fullName: applicationUser.full_name,
+        email: applicationUser.email,
+        role: applicationUser.role,
+        mappingCreatedAt: mapping.rows[0].created_at,
+      },
+    });
+  } catch (error) {
+    if (error.code === "SUPABASE_AUTH_TOKEN_INVALID") {
+      return res.status(401).json({ success: false, message: "Invalid Supabase Auth session." });
+    }
+    if (error.code === "SUPABASE_AUTH_CONFIG_MISSING") {
+      return res.status(503).json({ success: false, message: "Supabase Auth linking is not configured." });
+    }
+    console.error("Supabase Auth link error:", error.message);
+    return res.status(500).json({ success: false, message: "Account linking failed." });
+  }
+});
+
+/*
+ * Temporary compatibility bridge: Supabase Auth proves the browser identity,
+ * while the existing Express API continues to receive its established JWT.
+ * This route never creates users or copies passwords.
+ */
+router.post("/supabase/exchange", async (req, res) => {
+  const header = req.headers.authorization || "";
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({
+      success: false,
+      message: "A Supabase Auth access token is required.",
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    const supabaseUser = await getSupabaseUserFromAccessToken(match[1]);
+    const authUserId = String(supabaseUser.id || "").trim();
+    const emailVerified = Boolean(
+      supabaseUser.email_confirmed_at || supabaseUser.confirmed_at,
+    );
+
+    if (!authUserId || !emailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: "A verified Supabase email is required before signing in.",
+      });
+    }
+
+    await client.query("BEGIN");
+    const result = await client.query(
+      `SELECT u.id, u.full_name, u.email, u.role, u.is_active, u.is_email_verified
+       FROM user_auth_mapping AS m
+       JOIN users AS u ON u.id = m.user_id
+       WHERE m.auth_user_id = $1
+       LIMIT 1`,
+      [authUserId],
+    );
+    const user = result.rows[0];
+
+    if (!user || !user.is_active || !user.is_email_verified) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        success: false,
+        message: "This Supabase account is not linked to an active application account.",
+      });
+    }
+
+    const session = await issueSession(client, user, req);
+    await client.query("COMMIT");
+
+    return res.json({
+      success: true,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        is_email_verified: user.is_email_verified,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    if (error.code === "SUPABASE_AUTH_TOKEN_INVALID") {
+      return res.status(401).json({ success: false, message: "Invalid Supabase Auth session." });
+    }
+    if (error.code === "SUPABASE_AUTH_CONFIG_MISSING") {
+      return res.status(503).json({ success: false, message: "Supabase Auth exchange is not configured." });
+    }
+    console.error("Supabase Auth exchange error:", error.message);
+    return res.status(500).json({ success: false, message: "Supabase sign-in exchange failed." });
+  } finally {
+    client.release();
+  }
+});
+
 router.post("/register", async (req, res) => {
   const { fullName, email, password } = req.body;
   const validation = validateAuthRegister({ fullName, email, password });

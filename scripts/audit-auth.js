@@ -17,7 +17,7 @@ const roles = [
 
 async function main() {
   const client = new Client({
-    ...createPoolConfig(process.env.DATABASE_URL),
+    ...createPoolConfig(process.env.DIRECT_URL || process.env.DATABASE_URL),
     application_name: "white-impact-auth-audit",
   });
 

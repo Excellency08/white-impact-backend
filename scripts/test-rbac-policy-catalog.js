@@ -20,7 +20,7 @@ const sensitiveTables = [
 
 async function main() {
   const client = new Client({
-    ...createPoolConfig(process.env.DATABASE_URL),
+    ...createPoolConfig(process.env.DIRECT_URL || process.env.DATABASE_URL),
     application_name: "white-impact-rbac-policy-tests",
   });
 
@@ -95,7 +95,7 @@ main().catch((error) => {
     destructiveChanges: false,
     passed: false,
     errorCode: error?.code || error?.errno || "test-failed",
+    errorMessage: error?.message || "test failed",
   }, null, 2));
   process.exitCode = 1;
 });
-

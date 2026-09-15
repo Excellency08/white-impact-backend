@@ -9,6 +9,8 @@ const expectedBuckets = {
   "team-photos": { public: true, size: 5 * 1024 * 1024 },
   "media-library": { public: false, size: 100 * 1024 * 1024 },
   "donation-receipts": { public: false, size: 5 * 1024 * 1024 },
+  reports: { public: true, size: 25 * 1024 * 1024 },
+  "content-images": { public: true, size: 10 * 1024 * 1024 },
 };
 
 const expectedPolicies = [
@@ -21,11 +23,26 @@ const expectedPolicies = [
   "storage_media_library_delete",
   "storage_donation_receipts_select",
   "storage_donation_receipts_delete",
+  "storage_reports_select",
+  "storage_reports_insert",
+  "storage_reports_update",
+  "storage_content_images_select",
+  "storage_content_images_insert",
+  "storage_content_images_update",
+  "storage_content_images_delete",
+  "storage_content_images_projects_select",
+  "storage_content_images_projects_insert",
+  "storage_content_images_projects_update",
+  "storage_content_images_projects_delete",
+  "storage_content_images_stories_select",
+  "storage_content_images_stories_insert",
+  "storage_content_images_stories_update",
+  "storage_content_images_stories_delete",
 ];
 
 async function main() {
   const client = new Client({
-    ...createPoolConfig(process.env.DATABASE_URL),
+    ...createPoolConfig(process.env.DIRECT_URL || process.env.DATABASE_URL),
     application_name: "white-impact-storage-policy-tests",
   });
 

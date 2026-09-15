@@ -34,13 +34,11 @@ const impactRouter = require("./routes/impact");
 const programsRouter = require("./routes/programs");
 const projectsRouter = require("./routes/projects");
 const initiativesRouter = require("./routes/initiatives");
-const storiesRouter = require("./routes/stories");
 const newsRouter = require("./routes/news");
 const reportsRouter = require("./routes/reports");
 const cmsRouter = require("./routes/cms");
 const mediaRouter = require("./routes/media");
 const volunteersRouter = require("./routes/volunteers");
-const searchRouter = require("./routes/search");
 const analyticsRouter = require("./routes/analytics");
 const { logEntry, requestLogger } = require("./middleware/logger");
 
@@ -163,13 +161,11 @@ app.use("/api/impact", impactRouter);
 app.use("/api/programs", programsRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/initiatives", initiativesRouter);
-app.use("/api/stories", storiesRouter);
 app.use("/api/news", newsRouter);
 app.use("/api/reports", reportsRouter);
 app.use("/api/cms", cmsRouter);
 app.use("/api/media", mediaRouter);
 app.use("/api/volunteers", volunteersRouter);
-app.use("/api/search", searchRouter);
 app.use("/api/analytics", analyticsRouter);
 
 app.use("/api/v1/contact", contactRouter);
@@ -181,13 +177,11 @@ app.use("/api/v1/impact", impactRouter);
 app.use("/api/v1/programs", programsRouter);
 app.use("/api/v1/projects", projectsRouter);
 app.use("/api/v1/initiatives", initiativesRouter);
-app.use("/api/v1/stories", storiesRouter);
 app.use("/api/v1/news", newsRouter);
 app.use("/api/v1/reports", reportsRouter);
 app.use("/api/v1/cms", cmsRouter);
 app.use("/api/v1/media", mediaRouter);
 app.use("/api/v1/volunteers", volunteersRouter);
-app.use("/api/v1/search", searchRouter);
 app.use("/api/v1/analytics", analyticsRouter);
 
 app.get("/", (_req, res) => {
@@ -218,9 +212,6 @@ app.get("/sitemap.xml", async (_req, res) => {
     const { rows: newsRows } = await require("./db/database").query(
       `SELECT slug FROM news_posts WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 100`,
     );
-    const { rows: storyRows } = await require("./db/database").query(
-      `SELECT slug FROM stories WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 100`,
-    );
     const { rows: projectRows } = await require("./db/database").query(
       `SELECT slug FROM projects WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 100`,
     );
@@ -233,20 +224,15 @@ app.get("/sitemap.xml", async (_req, res) => {
       "our-story.html",
       "solutions.html",
       "projects.html",
-      "stories.html",
       "news.html",
       "reports.html",
       "partner-with-us.html",
       "work-with-us.html",
       "donate.html",
-      "search.html",
       "newsletter-confirmation.html",
       "newsletter-unsubscribe.html",
       "privacy-policy.html",
       "terms-of-use.html",
-      ...storyRows.map(
-        (row) => `story.html?slug=${encodeURIComponent(row.slug)}`,
-      ),
       ...newsRows.map(
         (row) => `news-article.html?slug=${encodeURIComponent(row.slug)}`,
       ),
@@ -306,13 +292,11 @@ app.get("/api/health/detailed", async (_req, res) => {
         impact: "configured",
         programs: "configured",
         projects: "configured",
-        stories: "configured",
         news: "configured",
         reports: "configured",
         cms: "configured",
         media: "configured",
         volunteers: "configured",
-        search: "configured",
         analytics: "configured",
       },
     },

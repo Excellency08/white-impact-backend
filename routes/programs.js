@@ -100,7 +100,6 @@ function formatProgram(row, { listView = false } = {}) {
     timeline: row.timeline || [],
     gallery: row.gallery || [],
     impactMetrics: row.impact_metrics || [],
-    stories: row.stories || [],
     reports: row.reports || [],
     partners: row.partners || [],
   };
@@ -117,7 +116,6 @@ async function fetchPrograms(whereClause = "", params = []) {
       COALESCE((SELECT jsonb_agg(jsonb_build_object('title', b.title, 'summary', b.description, 'imageUrl', b.image_url) ORDER BY b.display_order, b.id) FROM program_beneficiaries b WHERE b.program_id = p.id), p.beneficiaries) AS beneficiaries,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('title', l.name, 'summary', l.description, 'country', l.country, 'state', l.state, 'city', l.city) ORDER BY l.display_order, l.id) FROM program_locations l WHERE l.program_id = p.id), p.locations) AS locations,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('year', t.milestone_date, 'title', t.title, 'summary', t.description) ORDER BY t.display_order, t.id) FROM program_timeline t WHERE t.program_id = p.id), p.timeline) AS timeline,
-      COALESCE((SELECT jsonb_agg(jsonb_build_object('title', s.title, 'slug', s.slug, 'excerpt', s.excerpt) ORDER BY ps.display_order, ps.id) FROM program_stories ps JOIN stories s ON s.id = ps.story_id WHERE ps.program_id = p.id), p.stories) AS stories,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('title', pr.title, 'url', pr.file_url, 'description', pr.description) ORDER BY pr.display_order, pr.id) FROM program_reports pr WHERE pr.program_id = p.id), p.reports) AS reports,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('title', partner.name, 'description', partner.description, 'logoUrl', partner.logo_url) ORDER BY pp.display_order, pp.id) FROM program_partners pp JOIN partners partner ON partner.id = pp.partner_id WHERE pp.program_id = p.id), p.partners) AS partners,
       seo_title, seo_description, display_order, is_featured, is_active, updated_by,

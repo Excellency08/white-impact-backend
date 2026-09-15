@@ -13,6 +13,7 @@
     "db:test:rls": "node scripts/test-rls-boundaries.js",
     "db:test:rbac": "node scripts/test-rbac-policy-catalog.js",
     "db:test:storage": "node scripts/test-storage-policy-catalog.js",
+    "db:test:auth-mapping": "node scripts/test-auth-mapping-rpc.js",
     "db:audit:auth": "node scripts/audit-auth.js",
     "db:prepare:auth-mapping": "node scripts/prepare-auth-mapping.js",
     "auth:set-password": "node scripts/set-supabase-admin-password.js",

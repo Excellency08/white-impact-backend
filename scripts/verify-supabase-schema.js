@@ -12,6 +12,7 @@ const migrationFiles = fs
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
+const removedTables = new Set(["stories", "program_stories"]);
 const expectedTables = [...new Set(
   migrationFiles.flatMap((file) => {
     const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
@@ -19,7 +20,7 @@ const expectedTables = [...new Set(
       (match) => match[1].toLowerCase(),
     );
   }),
-)].sort();
+)].filter((table) => !removedTables.has(table)).sort();
 
 function safeErrorCode(error) {
   if (error?.code === "ENOTFOUND") return "host-unreachable";

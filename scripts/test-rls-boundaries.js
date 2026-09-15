@@ -6,11 +6,11 @@ const { createPoolConfig } = require("../db/connection-config");
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const publicReadTables = [
-  "programs", "projects", "stories", "news_posts", "reports", "cms_pages",
+  "programs", "projects", "news_posts", "reports", "cms_pages",
   "team_members", "media_assets", "impact_metrics", "impact_metric_history",
   "impact_program_outcomes", "impact_geographies", "impact_stories",
   "program_beneficiaries", "program_locations", "program_timeline",
-  "program_gallery", "program_impact_metrics", "program_stories",
+  "program_gallery", "program_impact_metrics",
   "program_reports", "partners", "program_partners",
 ];
 

@@ -7,6 +7,7 @@ const { createPoolConfig } = require("../db/connection-config");
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const migrationsDir = path.join(__dirname, "..", "db", "migrations");
+const removedTables = new Set(["stories", "program_stories"]);
 const expectedTables = [...new Set(
   fs.readdirSync(migrationsDir)
     .filter((file) => file.endsWith(".sql"))
@@ -17,7 +18,7 @@ const expectedTables = [...new Set(
         (match) => match[1].toLowerCase(),
       );
     }),
-)].sort();
+)].filter((table) => !removedTables.has(table)).sort();
 
 function safeErrorCode(error) {
   return error?.code || error?.errno || "connection-failed";

@@ -21,7 +21,6 @@ async function main() {
         (SELECT COUNT(*) FROM public.program_timeline) AS timeline,
         (SELECT COUNT(*) FROM public.program_gallery) AS gallery,
         (SELECT COUNT(*) FROM public.program_impact_metrics) AS impact_metrics,
-        (SELECT COUNT(*) FROM public.program_stories) AS stories,
         (SELECT COUNT(*) FROM public.program_reports) AS reports,
         (SELECT COUNT(*) FROM public.program_partners) AS partners
     `);

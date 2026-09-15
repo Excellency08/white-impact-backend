@@ -34,10 +34,6 @@ const expectedPolicies = [
   "storage_content_images_projects_insert",
   "storage_content_images_projects_update",
   "storage_content_images_projects_delete",
-  "storage_content_images_stories_select",
-  "storage_content_images_stories_insert",
-  "storage_content_images_stories_update",
-  "storage_content_images_stories_delete",
 ];
 
 async function main() {

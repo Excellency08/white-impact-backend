@@ -7,7 +7,6 @@ dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const expectedBuckets = {
   "team-photos": { public: true, size: 5 * 1024 * 1024 },
-  "media-library": { public: false, size: 100 * 1024 * 1024 },
   "donation-receipts": { public: false, size: 5 * 1024 * 1024 },
   reports: { public: true, size: 25 * 1024 * 1024 },
   "content-images": { public: true, size: 10 * 1024 * 1024 },
@@ -17,10 +16,6 @@ const expectedPolicies = [
   "storage_team_photos_insert",
   "storage_team_photos_update",
   "storage_team_photos_delete",
-  "storage_media_library_select",
-  "storage_media_library_insert",
-  "storage_media_library_update",
-  "storage_media_library_delete",
   "storage_donation_receipts_select",
   "storage_donation_receipts_delete",
   "storage_reports_select",
@@ -34,6 +29,12 @@ const expectedPolicies = [
   "storage_content_images_projects_insert",
   "storage_content_images_projects_update",
   "storage_content_images_projects_delete",
+  "storage_content_images_news_select",
+  "storage_content_images_news_insert",
+  "storage_content_images_news_update",
+  "storage_content_images_cms_select",
+  "storage_content_images_cms_insert",
+  "storage_content_images_cms_update",
 ];
 
 async function main() {

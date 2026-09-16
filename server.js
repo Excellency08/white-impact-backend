@@ -37,7 +37,6 @@ const initiativesRouter = require("./routes/initiatives");
 const newsRouter = require("./routes/news");
 const reportsRouter = require("./routes/reports");
 const cmsRouter = require("./routes/cms");
-const mediaRouter = require("./routes/media");
 const volunteersRouter = require("./routes/volunteers");
 const analyticsRouter = require("./routes/analytics");
 const { logEntry, requestLogger } = require("./middleware/logger");
@@ -164,7 +163,6 @@ app.use("/api/initiatives", initiativesRouter);
 app.use("/api/news", newsRouter);
 app.use("/api/reports", reportsRouter);
 app.use("/api/cms", cmsRouter);
-app.use("/api/media", mediaRouter);
 app.use("/api/volunteers", volunteersRouter);
 app.use("/api/analytics", analyticsRouter);
 
@@ -180,7 +178,6 @@ app.use("/api/v1/initiatives", initiativesRouter);
 app.use("/api/v1/news", newsRouter);
 app.use("/api/v1/reports", reportsRouter);
 app.use("/api/v1/cms", cmsRouter);
-app.use("/api/v1/media", mediaRouter);
 app.use("/api/v1/volunteers", volunteersRouter);
 app.use("/api/v1/analytics", analyticsRouter);
 

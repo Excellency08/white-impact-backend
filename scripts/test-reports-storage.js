@@ -50,6 +50,16 @@ async function main() {
        WHERE bucket_id = 'reports'
          AND name ~ '^reports/[0-9]+/[^/]+\\.pdf$'`,
     );
+    const downloadFunction = await client.query(
+      `SELECT p.prosecdef AS security_definer,
+              pg_get_function_identity_arguments(p.oid) AS arguments,
+              has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_execute,
+              has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated_execute
+       FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public'
+         AND p.proname = 'record_public_report_download'`,
+    );
 
     const failures = [];
     const foundColumns = new Set(columns.rows.map((row) => row.column_name));
@@ -82,6 +92,17 @@ async function main() {
     }
     if (objects.rowCount !== reports.rowCount) failures.push("storage objects: report count mismatch");
 
+    const downloadRpc = downloadFunction.rows[0];
+    if (!downloadRpc) {
+      failures.push("record_public_report_download RPC: missing");
+    } else {
+      if (!downloadRpc.security_definer) failures.push("record_public_report_download RPC: must be security definer");
+      if (downloadRpc.arguments !== "p_slug text") failures.push("record_public_report_download RPC: argument shape mismatch");
+      if (!downloadRpc.anon_execute || !downloadRpc.authenticated_execute) {
+        failures.push("record_public_report_download RPC: required execution grants missing");
+      }
+    }
+
     const publicChecks = [];
     for (const report of reports.rows) {
       const response = await fetch(report.file_url);
@@ -100,6 +121,14 @@ async function main() {
       requiredColumnCount: columns.rowCount,
       reportCount: reports.rowCount,
       storageObjectCount: objects.rowCount,
+      downloadTrackingRpc: downloadRpc
+        ? {
+            securityDefiner: downloadRpc.security_definer,
+            arguments: downloadRpc.arguments,
+            anonExecute: downloadRpc.anon_execute,
+            authenticatedExecute: downloadRpc.authenticated_execute,
+          }
+        : null,
       publicChecks,
       failures,
     }, null, 2));

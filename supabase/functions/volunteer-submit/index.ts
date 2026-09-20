@@ -1,4 +1,4 @@
-import { audit, cleanString, getServiceClient, json, normalizeEmail, parseBody, rateLimit, sendEmail, validateEmail, validatePhone } from "../_shared/common.ts";
+import { audit, cleanString, getServiceClient, htmlEscape, json, normalizeEmail, parseBody, rateLimit, sendEmail, validateEmail, validatePhone } from "../_shared/common.ts";
 
 function list(value: unknown) {
   if (Array.isArray(value)) return value;
@@ -60,12 +60,12 @@ Deno.serve(async (req) => {
       sendEmail({
         to: email,
         subject: "We received your volunteer application",
-        html: `<p>Thanks ${fullName}, we received your volunteer application and will review it shortly.</p>`,
+        html: `<p>Thanks ${htmlEscape(fullName)}, we received your volunteer application and will review it shortly.</p>`,
       }),
       sendEmail({
         to: Deno.env.get("STAFF_EMAIL") || "info@whiteimpactinitiative.org",
         subject: `New volunteer application - ${fullName}`,
-        html: `<p><strong>Name:</strong> ${fullName}</p><p><strong>Email:</strong> ${email}</p><p><strong>Availability:</strong> ${payload.availability || "-"}</p>`,
+        html: `<p><strong>Name:</strong> ${htmlEscape(fullName)}</p><p><strong>Email:</strong> ${htmlEscape(email)}</p><p><strong>Availability:</strong> ${htmlEscape(payload.availability || "-")}</p>`,
       }),
       audit(req, client, {
         action: "volunteer.create",

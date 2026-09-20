@@ -21,5 +21,13 @@ Prepared functions:
 - `volunteer-submit`
 - `newsletter`
 - `analytics-events`
+- `donation-receipt-access`
 
-These sources are not wired into the frontend until deployment and live acceptance testing confirm the Supabase Edge endpoints behave like the existing Express routes.
+The public submission/event functions are configured for anonymous invocation
+because they perform their own validation and rate checks before privileged
+server-side writes. `donation-receipt-access` requires an authenticated admin
+JWT and returns only a short-lived private Storage signed URL.
+
+These sources are not wired into the frontend until deployment and live
+acceptance testing confirm the Supabase Edge endpoints behave like the
+existing Express routes.

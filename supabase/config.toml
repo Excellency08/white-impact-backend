@@ -1,0 +1,16 @@
+project_id = "white-impact"
+
+[functions.contact-submit]
+verify_jwt = false
+
+[functions.volunteer-submit]
+verify_jwt = false
+
+[functions.newsletter]
+verify_jwt = false
+
+[functions.analytics-events]
+verify_jwt = false
+
+[functions.donation-receipt-access]
+verify_jwt = true

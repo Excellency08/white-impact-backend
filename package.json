@@ -29,6 +29,7 @@
     "db:audit:auth": "node scripts/audit-auth.js",
     "db:prepare:auth-mapping": "node scripts/prepare-auth-mapping.js",
     "auth:set-password": "node scripts/set-supabase-admin-password.js",
+    "edge:verify": "node scripts/verify-edge-functions.js",
     "test": "node test/smoke.js"
   },
   "dependencies": {

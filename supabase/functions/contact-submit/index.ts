@@ -1,4 +1,4 @@
-import { audit, cleanString, getServiceClient, json, parseBody, rateLimit, sendEmail, validateEmail } from "../_shared/common.ts";
+import { audit, cleanString, getServiceClient, htmlEscape, json, parseBody, rateLimit, sendEmail, validateEmail } from "../_shared/common.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json(req, 204, {});
@@ -35,12 +35,12 @@ Deno.serve(async (req) => {
       sendEmail({
         to: email,
         subject: "We received your message - White Impact Development Initiative",
-        html: `<p>Dear ${fullName},</p><p>Thank you for reaching out. We received your message and our team will respond within 2 business days.</p>`,
+        html: `<p>Dear ${htmlEscape(fullName)},</p><p>Thank you for reaching out. We received your message and our team will respond within 2 business days.</p>`,
       }),
       sendEmail({
         to: Deno.env.get("STAFF_EMAIL") || "info@whiteimpactinitiative.org",
         subject: `New contact: ${subject || "General Inquiry"}`,
-        html: `<p><strong>Name:</strong> ${fullName}</p><p><strong>Email:</strong> ${email}</p><p><strong>Subject:</strong> ${subject}</p><p>${message}</p>`,
+        html: `<p><strong>Name:</strong> ${htmlEscape(fullName)}</p><p><strong>Email:</strong> ${htmlEscape(email)}</p><p><strong>Subject:</strong> ${htmlEscape(subject)}</p><p>${htmlEscape(message)}</p>`,
       }),
       audit(req, client, {
         action: "contact.create",

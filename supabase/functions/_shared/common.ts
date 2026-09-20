@@ -35,15 +35,22 @@ export function corsHeaders(req: Request) {
   } catch {
     allowOrigin = "";
   }
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
+  const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   };
+  if (allowOrigin) headers["Access-Control-Allow-Origin"] = allowOrigin;
+  return headers;
 }
 
 export function json(req: Request, status: number, body: JsonRecord) {
+  if (status === 204 || status === 304) {
+    return new Response(null, {
+      status,
+      headers: corsHeaders(req),
+    });
+  }
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -80,6 +87,15 @@ export function validatePhone(phone: string) {
 
 export function cleanString(value: unknown, max: number, fallback = "") {
   return normalize(value, fallback).slice(0, max);
+}
+
+export function htmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 export function clientIp(req: Request) {

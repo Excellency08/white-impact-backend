@@ -1,4 +1,4 @@
-import { audit, getServiceClient, json, normalizeEmail, parseBody, rateLimit, sendEmail, validateEmail } from "../_shared/common.ts";
+import { audit, getServiceClient, htmlEscape, json, normalizeEmail, parseBody, rateLimit, sendEmail, validateEmail } from "../_shared/common.ts";
 
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
         sendEmail({
           to: email,
           subject: "Confirm your White Impact newsletter subscription",
-          html: `<p>Hi ${fullName || "there"},</p><p>Please confirm your subscription to receive White Impact updates.</p><p><a href="${confirmUrl}">Confirm subscription</a></p><p>Unsubscribe anytime: <a href="${unsubscribeUrl}">Manage subscription</a></p>`,
+          html: `<p>Hi ${htmlEscape(fullName || "there")},</p><p>Please confirm your subscription to receive White Impact updates.</p><p><a href="${htmlEscape(confirmUrl)}">Confirm subscription</a></p><p>Unsubscribe anytime: <a href="${htmlEscape(unsubscribeUrl)}">Manage subscription</a></p>`,
         }),
         audit(req, client, {
           action: "newsletter.subscribe",

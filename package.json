@@ -1,12 +1,9 @@
 {
   "name": "whiteimpact-backend",
   "version": "1.0.0",
-  "description": "Backend API for White Impact Development Initiative website",
-  "main": "server.js",
+  "description": "Supabase migration, audit, and verification tooling for White Impact Development Initiative",
+  "main": "scripts/verify-edge-functions.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "whiteimpact": "node server.js",
     "db:migrate": "node db/migrate.js",
     "db:verify:supabase": "node scripts/verify-supabase-schema.js",
     "db:audit:rls": "node scripts/audit-rls.js",
@@ -30,24 +27,12 @@
     "db:prepare:auth-mapping": "node scripts/prepare-auth-mapping.js",
     "auth:set-password": "node scripts/set-supabase-admin-password.js",
     "edge:verify": "node scripts/verify-edge-functions.js",
-    "test": "node test/smoke.js"
+    "test": "node scripts/verify-edge-functions.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.116.0",
-    "argon2": "^0.45.1",
-    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-rate-limit": "^7.3.1",
-    "helmet": "^7.1.0",
-    "jsonwebtoken": "^9.0.3",
-    "multer": "^1.4.5-lts.1",
-    "nodemailer": "^9.0.1",
     "pg": "^8.12.0",
-    "resend": "^6.18.1"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.4"
+    "@supabase/supabase-js": "^2.116.0"
   },
   "engines": {
     "node": ">=18.0.0"

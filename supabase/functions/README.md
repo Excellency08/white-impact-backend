@@ -34,5 +34,5 @@ JWT and returns only a short-lived private Storage signed URL.
 Donation submission, receipt upload, and approval are privileged server-side
 workflows. They preserve bank transfer details, private receipt Storage, role
 checks, audit logging, and optional email delivery without exposing secrets to
-the browser. The Express donation routes remain available as rollback until
-these functions are deployed and browser-verified.
+the browser. The former Express donation routes are retired; historical local
+receipt files remain available only as rollback data.

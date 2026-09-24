@@ -14,3 +14,12 @@ verify_jwt = false
 
 [functions.donation-receipt-access]
 verify_jwt = true
+
+[functions.donation-submit]
+verify_jwt = false
+
+[functions.donation-receipt-submit]
+verify_jwt = false
+
+[functions.donation-approve]
+verify_jwt = true

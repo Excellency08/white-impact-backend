@@ -8,9 +8,12 @@ const publicFunctions = [
   "volunteer-submit",
   "newsletter",
   "analytics-events",
+  "donation-submit",
+  "donation-receipt-submit",
 ];
 const authenticatedFunctions = [
   "donation-receipt-access",
+  "donation-approve",
 ];
 const expectedFunctions = [...publicFunctions, ...authenticatedFunctions];
 const forbiddenPatterns = [
@@ -68,7 +71,9 @@ for (const name of authenticatedFunctions) {
   if (!new RegExp(`\\[functions\\.${name}\\][\\s\\S]*?verify_jwt\\s*=\\s*true`).test(config)) {
     failures.push(`${name}: authenticated invocation JWT setting is not explicit`);
   }
-  if (!source.includes("createSignedUrl")) failures.push(`${name}: signed URL generation is missing`);
+  if (name === "donation-receipt-access" && !source.includes("createSignedUrl")) {
+    failures.push(`${name}: signed URL generation is missing`);
+  }
   if (source.includes("receipt_storage_path") && source.includes("body.receipt")) {
     failures.push(`${name}: must not accept a client-supplied receipt path`);
   }

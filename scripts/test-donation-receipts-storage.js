@@ -38,6 +38,11 @@ async function main() {
        WHERE receipt_url LIKE '/uploads/receipts/%'
        ORDER BY id`,
     );
+    const allReceiptReferences = await db.query(
+      `SELECT receipt_url, receipt_storage_path
+       FROM public.donations
+       WHERE receipt_url IS NOT NULL OR receipt_storage_path IS NOT NULL`,
+    );
     const objects = await db.query(
       `SELECT name, metadata
        FROM storage.objects
@@ -59,9 +64,17 @@ async function main() {
     }
 
     if (donations.rowCount !== 2) failures.push("expected exactly two legacy receipt donation records");
-    if (objects.rowCount !== donations.rowCount) failures.push("storage object count must match migrated receipt records");
 
     const objectNames = new Set(objects.rows.map((row) => row.name));
+    const referencedObjectNames = new Set(
+      allReceiptReferences.rows.flatMap((row) => [row.receipt_storage_path, String(row.receipt_url || "").replace(/^\//, "")].filter(Boolean)),
+    );
+    const unreferencedObjects = objects.rows.filter((row) => !referencedObjectNames.has(row.name));
+    const retainedHistoricalObjects = unreferencedObjects.filter((row) => row.name.startsWith("uploads/receipts/"));
+    const unexpectedUnreferencedObjects = unreferencedObjects.filter((row) => !row.name.startsWith("uploads/receipts/"));
+    if (unexpectedUnreferencedObjects.length) {
+      failures.push("unexpected unreferenced donation receipt Storage object exists");
+    }
     for (const donation of donations.rows) {
       if (!donation.receipt_storage_path) failures.push(`donation ${donation.id}: storage path missing`);
       if (!donation.receipt_sha256) failures.push(`donation ${donation.id}: checksum missing`);
@@ -119,6 +132,8 @@ async function main() {
       bucketPrivate: bucketRow ? bucketRow.public === false : false,
       legacyReceiptRecords: donations.rowCount,
       storageObjectCount: objects.rowCount,
+      referencedStorageObjectCount: objects.rows.length - unreferencedObjects.length,
+      retainedHistoricalObjectCount: retainedHistoricalObjects.length,
       serviceDownloads,
       anonymousDownloadDenied,
       legacyRollbackUrlsRetained: donations.rows.every((row) => String(row.receipt_url || "").startsWith("/uploads/receipts/")),

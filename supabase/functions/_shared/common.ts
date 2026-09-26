@@ -85,6 +85,11 @@ export function validatePhone(phone: string) {
   return /^[\d\s\-+()]{10,}$/.test(phone);
 }
 
+export function bearerToken(req: Request) {
+  const value = req.headers.get("authorization") || "";
+  return value.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+}
+
 export function cleanString(value: unknown, max: number, fallback = "") {
   return normalize(value, fallback).slice(0, max);
 }
@@ -144,7 +149,7 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
 
 export async function audit(
   req: Request,
-  client: ReturnType<typeof createClient>,
+  client: ReturnType<typeof getServiceClient>,
   row: {
     action: string;
     entityType: string;

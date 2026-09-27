@@ -76,24 +76,36 @@ Deno.serve(async (req) => {
     const subject = kind === "volunteers"
       ? "Your White Impact volunteer application has been reviewed"
       : "An update from White Impact Development Initiative";
-    const email = await sendEmail({
-      to: recipient,
-      subject,
-      html: `<p>Dear ${htmlEscape(updated.full_name || "there")},</p><p>${htmlEscape(message).replaceAll("\n", "<br>")}</p><p>With appreciation,<br>White Impact Development Initiative</p>`,
-    });
+    let emailSent = false;
+    let emailDeliveryFailed = false;
+    try {
+      const email = await sendEmail({
+        to: recipient,
+        subject,
+        html: `<p>Dear ${htmlEscape(updated.full_name || "there")},</p><p>${htmlEscape(message).replaceAll("\n", "<br>")}</p><p>With appreciation,<br>White Impact Development Initiative</p>`,
+      });
+      emailSent = !email.skipped;
+    } catch {
+      // Keep the reviewed status while reporting that the optional notification failed.
+      emailDeliveryFailed = true;
+    }
 
     await audit(req, client, {
       action: `${kind}.review`,
       entityType: table,
       entityId: id,
       summary: `${kind} submission ${id} marked ${status}`,
-      metadata: { status, emailSent: !email.skipped },
+      metadata: { status, emailSent, emailDeliveryFailed },
     });
     return json(req, 200, {
       success: true,
       data: updated,
-      emailSent: !email.skipped,
-      message: email.skipped ? "Submission updated, but email delivery is not configured." : "Submission approved and email sent.",
+      emailSent,
+      message: emailDeliveryFailed
+        ? "Submission updated, but email delivery failed."
+        : emailSent
+          ? "Submission approved and email sent."
+          : "Submission updated, but email delivery is not configured.",
     });
   } catch {
     return json(req, 500, { success: false, message: "Failed to review submission." });

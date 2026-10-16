@@ -53,29 +53,45 @@ Deno.serve(async (req) => {
       if (alreadyApproved) {
         return json(req, 409, { success: false, message: "An approved donation cannot be rejected." });
       }
-      if (existing.status === "rejected") {
-        return json(req, 200, {
-          success: true,
-          data: existing,
-          emailSent: null,
-          message: "This donation was already rejected; no additional email was sent.",
-        });
+      const alreadyRejected = existing.status === "rejected";
+      if (alreadyRejected) {
+        const { data: previousNotice, error: noticeLookupError } = await client.from("audit_logs")
+          .select("metadata")
+          .eq("entity_type", "donations")
+          .eq("entity_id", String(donationId))
+          .eq("action", "donation.reject")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (noticeLookupError) throw noticeLookupError;
+        if (previousNotice?.metadata?.emailSent === true) {
+          return json(req, 200, {
+            success: true,
+            data: existing,
+            emailSent: true,
+            message: "This donation is already rejected and the donor has been notified.",
+          });
+        }
       }
 
-      const { data: rejected, error: rejectError } = await client.from("donations").update({
-        status: "rejected",
-        payment_status: "failed",
-        confirmation_method: "admin_rejected",
-        updated_at: new Date().toISOString(),
-      })
-        .eq("id", donationId)
-        .eq("status", existing.status)
-        .eq("payment_status", existing.payment_status)
-        .select("*")
-        .maybeSingle();
-      if (rejectError) throw rejectError;
-      if (!rejected) {
-        return json(req, 409, { success: false, message: "Donation status changed during review. Refresh and try again." });
+      let rejected = existing;
+      if (!alreadyRejected) {
+        const { data: updatedDonation, error: rejectError } = await client.from("donations").update({
+          status: "rejected",
+          payment_status: "failed",
+          confirmation_method: "admin_rejected",
+          updated_at: new Date().toISOString(),
+        })
+          .eq("id", donationId)
+          .eq("status", existing.status)
+          .eq("payment_status", existing.payment_status)
+          .select("*")
+          .maybeSingle();
+        if (rejectError) throw rejectError;
+        if (!updatedDonation) {
+          return json(req, 409, { success: false, message: "Donation status changed during review. Refresh and try again." });
+        }
+        rejected = updatedDonation;
       }
 
       let emailSent = false;
@@ -83,7 +99,7 @@ Deno.serve(async (req) => {
         const email = await sendEmail({
           to: rejected.email,
           subject: `Update on your donation - ${rejected.reference}`,
-          html: `<h2>Update on your donation, ${htmlEscape(rejected.full_name || "there")}</h2><p>We have not been able to verify receipt of your bank transfer for this donation.</p><p><strong>Donation amount:</strong> ₦${Number(rejected.amount_naira || 0).toLocaleString()}</p><p><strong>Donation reference:</strong> ${htmlEscape(rejected.reference)}</p><p><strong>Program:</strong> ${htmlEscape(rejected.program_area || "Not specified")}</p><p><strong>Review message:</strong><br>${htmlEscape(rejectionMessage).replaceAll("\n", "<br>")}</p><p>If you already completed the transfer, please contact <a href="mailto:info@whiteimpactinitiative.org">info@whiteimpactinitiative.org</a> and include your donation reference and bank transaction reference so our team can investigate. Please wait for our response before submitting another donation.</p><p>Regards,<br>White Impact Development Initiative</p>`,
+          html: `<h2>Update on your donation, ${htmlEscape(rejected.full_name || "there")}</h2><p>We have not been able to verify receipt of your bank transfer for this donation.</p><p><strong>Donor:</strong> ${htmlEscape(rejected.full_name || "Not provided")}</p><p><strong>Email:</strong> ${htmlEscape(rejected.email || "Not provided")}</p><p><strong>Phone:</strong> ${htmlEscape(rejected.phone || "Not provided")}</p><p><strong>Donation amount:</strong> ₦${Number(rejected.amount_naira || 0).toLocaleString()}</p><p><strong>Donation reference:</strong> ${htmlEscape(rejected.reference)}</p><p><strong>Program:</strong> ${htmlEscape(rejected.program_area || "Not specified")}</p><p><strong>Review message:</strong><br>${htmlEscape(rejectionMessage).replaceAll("\n", "<br>")}</p><p>If you already completed the transfer, please contact <a href="mailto:info@whiteimpactinitiative.org">info@whiteimpactinitiative.org</a> and include your donation reference and bank transaction reference so our team can investigate. Please wait for our response before submitting another donation.</p><p>Regards,<br>White Impact Development Initiative</p>`,
         });
         emailSent = !email.skipped;
       } catch {
@@ -95,7 +111,7 @@ Deno.serve(async (req) => {
         entityType: "donations",
         entityId: donationId,
         summary: `Donation ${donationId} rejected`,
-        metadata: { status: "rejected", paymentStatus: "failed", rejectionMessage },
+        metadata: { status: "rejected", paymentStatus: "failed", rejectionMessage, emailSent },
       });
       return json(req, 200, {
         success: true,
@@ -103,7 +119,7 @@ Deno.serve(async (req) => {
         emailSent,
         message: emailSent
           ? "Donation rejected and donor notified."
-          : "Donation rejected, but the donor email could not be sent.",
+          : "Donation rejected, but the donor email could not be sent. Try sending the rejection notice again.",
       });
     }
 

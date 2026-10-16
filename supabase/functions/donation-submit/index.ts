@@ -1,4 +1,4 @@
-import { audit, cleanString, getServiceClient, htmlEscape, json, normalizeEmail, parseBody, rateLimit, sendEmail, validateEmail, validatePhone } from "../_shared/common.ts";
+import { audit, cleanString, getServiceClient, json, normalizeEmail, parseBody, rateLimit, validateEmail, validatePhone } from "../_shared/common.ts";
 
 function bankDetails() {
   return {
@@ -55,11 +55,6 @@ Deno.serve(async (req) => {
     if (error) throw error;
 
     await Promise.allSettled([
-      sendEmail({
-        to: Deno.env.get("STAFF_EMAIL") || "info@whiteimpactinitiative.org",
-        subject: `New donation started - ${reference}`,
-        html: `<p><strong>Donor:</strong> ${htmlEscape(fullName)}</p><p><strong>Email:</strong> ${htmlEscape(email)}</p><p><strong>Amount:</strong> ₦${amount.toLocaleString()}</p><p><strong>Reference:</strong> ${htmlEscape(reference)}</p>`,
-      }),
       audit(req, client, {
         action: "donation.initiate",
         entityType: "donations",

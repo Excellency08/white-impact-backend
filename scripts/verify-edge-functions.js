@@ -9,6 +9,7 @@ const publicFunctions = [
   "newsletter",
   "analytics-events",
   "donation-submit",
+  "donation-transfer-notify",
   "donation-receipt-submit",
 ];
 const authenticatedFunctions = [

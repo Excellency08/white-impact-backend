@@ -18,6 +18,9 @@ verify_jwt = true
 [functions.donation-submit]
 verify_jwt = false
 
+[functions.donation-transfer-notify]
+verify_jwt = false
+
 [functions.donation-receipt-submit]
 verify_jwt = false
 

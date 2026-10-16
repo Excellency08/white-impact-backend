@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
       .select("id, role, is_active, is_email_verified").eq("id", mapping.user_id).maybeSingle();
     if (userError) throw userError;
     if (!user?.is_active || !user.is_email_verified || !allowedRoles.has(String(user.role))) {
-      return json(req, 403, { success: false, message: "Not authorized to approve donations." });
+      return json(req, 403, { success: false, message: "Not authorized to review donations." });
     }
 
     const body = await parseBody(req);
@@ -43,6 +43,73 @@ Deno.serve(async (req) => {
       .select("*").eq("id", donationId).maybeSingle();
     if (existingError) throw existingError;
     if (!existing) return json(req, 404, { success: false, message: "Donation not found." });
+
+    if (String(body.decision || "").trim().toLowerCase() === "reject") {
+      const rejectionMessage = String(body.rejectionMessage || "").trim().slice(0, 2000);
+      if (!rejectionMessage) {
+        return json(req, 400, { success: false, message: "A rejection explanation is required." });
+      }
+      const alreadyApproved = existing.status === "verified" || existing.payment_status === "succeeded";
+      if (alreadyApproved) {
+        return json(req, 409, { success: false, message: "An approved donation cannot be rejected." });
+      }
+      if (existing.status === "rejected") {
+        return json(req, 200, {
+          success: true,
+          data: existing,
+          emailSent: null,
+          message: "This donation was already rejected; no additional email was sent.",
+        });
+      }
+
+      const { data: rejected, error: rejectError } = await client.from("donations").update({
+        status: "rejected",
+        payment_status: "failed",
+        confirmation_method: "admin_rejected",
+        updated_at: new Date().toISOString(),
+      })
+        .eq("id", donationId)
+        .eq("status", existing.status)
+        .eq("payment_status", existing.payment_status)
+        .select("*")
+        .maybeSingle();
+      if (rejectError) throw rejectError;
+      if (!rejected) {
+        return json(req, 409, { success: false, message: "Donation status changed during review. Refresh and try again." });
+      }
+
+      let emailSent = false;
+      try {
+        const email = await sendEmail({
+          to: rejected.email,
+          subject: `Update on your donation - ${rejected.reference}`,
+          html: `<h2>Update on your donation, ${htmlEscape(rejected.full_name || "there")}</h2><p>We have not been able to verify receipt of your bank transfer for this donation.</p><p><strong>Donation amount:</strong> ₦${Number(rejected.amount_naira || 0).toLocaleString()}</p><p><strong>Donation reference:</strong> ${htmlEscape(rejected.reference)}</p><p><strong>Program:</strong> ${htmlEscape(rejected.program_area || "Not specified")}</p><p><strong>Review message:</strong><br>${htmlEscape(rejectionMessage).replaceAll("\n", "<br>")}</p><p>If you already completed the transfer, please contact <a href="mailto:info@whiteimpactinitiative.org">info@whiteimpactinitiative.org</a> and include your donation reference and bank transaction reference so our team can investigate. Please wait for our response before submitting another donation.</p><p>Regards,<br>White Impact Development Initiative</p>`,
+        });
+        emailSent = !email.skipped;
+      } catch {
+        emailSent = false;
+      }
+
+      await audit(req, client, {
+        action: "donation.reject",
+        entityType: "donations",
+        entityId: donationId,
+        summary: `Donation ${donationId} rejected`,
+        metadata: { status: "rejected", paymentStatus: "failed", rejectionMessage },
+      });
+      return json(req, 200, {
+        success: true,
+        data: rejected,
+        emailSent,
+        message: emailSent
+          ? "Donation rejected and donor notified."
+          : "Donation rejected, but the donor email could not be sent.",
+      });
+    }
+
+    if (existing.status === "rejected") {
+      return json(req, 409, { success: false, message: "A rejected donation cannot be approved through this action." });
+    }
 
     const wasApproved = existing.status === "verified" || existing.payment_status === "succeeded";
     const isApproved = nextStatus === "verified" || nextPaymentStatus === "succeeded";

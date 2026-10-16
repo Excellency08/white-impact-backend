@@ -21,6 +21,7 @@ Deno.serve(async (req) => {
   }
 
   const body = await parseBody(req);
+  const action = cleanString(body.action, 20) || "confirm";
   const fullName = cleanString(body.fullName ?? body.full_name, 255);
   const email = normalizeEmail(body.email);
   const phone = cleanString(body.phone, 30);
@@ -35,9 +36,25 @@ Deno.serve(async (req) => {
   if (!category) errors.push("Program area is required");
   if (errors.length) return json(req, 400, { success: false, errors });
 
+  if (action === "prepare") {
+    const reference = `WII-${Date.now()}-${crypto.randomUUID().slice(0, 5).toUpperCase()}`;
+    return json(req, 200, {
+      success: true,
+      reference,
+      donation: { fullName, email, amountNaira: amount, programArea: category },
+      bank,
+    });
+  }
+  if (action !== "confirm") {
+    return json(req, 400, { success: false, message: "Unsupported donation action." });
+  }
+
   try {
     const client = getServiceClient();
-    const reference = `WII-${Date.now()}-${crypto.randomUUID().slice(0, 5).toUpperCase()}`;
+    const reference = cleanString(body.reference, 80) || `WII-${Date.now()}-${crypto.randomUUID().slice(0, 5).toUpperCase()}`;
+    if (!/^WII-[A-Za-z0-9-]{8,72}$/.test(reference)) {
+      return json(req, 400, { success: false, message: "Donation reference is invalid. Please restart the donation form." });
+    }
     const { data, error } = await client.from("donations").insert({
       reference,
       full_name: fullName,
@@ -52,7 +69,31 @@ Deno.serve(async (req) => {
       payment_status: "pending",
       idempotency_key: cleanString(body.idempotencyKey ?? body.idempotency_key, 255) || null,
     }).select("id").single();
-    if (error) throw error;
+    if (error) {
+      // A retry after a lost response must not create a second record.
+      const { data: existing } = await client.from("donations")
+        .select("id, full_name, email, phone, amount_naira, program_area")
+        .eq("reference", reference)
+        .maybeSingle();
+      if (
+        existing &&
+        existing.full_name === fullName &&
+        existing.email === email &&
+        existing.phone === phone &&
+        Number(existing.amount_naira) === Math.round(amount) &&
+        existing.program_area === category
+      ) {
+        return json(req, 200, {
+          success: true,
+          reference,
+          donation: { fullName, email, amountNaira: amount, programArea: category },
+          bank,
+          donationId: existing.id,
+          alreadySubmitted: true,
+        });
+      }
+      throw error;
+    }
 
     await Promise.allSettled([
       audit(req, client, {
